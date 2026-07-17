@@ -1,5 +1,6 @@
 /** Inventory decrement checks against staging-inventory-v2. Ports regression/verify/inventory.py. */
 
+import { AGGREGATE_LOCATIONS } from "../config";
 import { VerificationError } from "./index";
 
 /**
@@ -9,6 +10,11 @@ import { VerificationError } from "./index";
  * before / after:        {sku: {storeKey: qty}} snapshots.
  * expectedDecrements:    {sku: {storeKey: units}} — e.g. an order of 2 units
  *                        allocated at ATP#100 expects {sku: {"ATP#100": 2}}.
+ *
+ * Aggregate/pool locations (AGGREGATE_LOCATIONS) are skipped: they mirror
+ * real store stock asynchronously and are not independent inventory, so
+ * comparing them here would intermittently fail cases on a location the
+ * seed/order never touched.
  */
 export function assertDecrements(
   before: Record<string, Record<string, number>>,
@@ -20,6 +26,9 @@ export function assertDecrements(
     const expected = expectedDecrements[sku] ?? {};
     const locations = new Set([...Object.keys(before[sku] ?? {}), ...Object.keys(after[sku] ?? {})]);
     for (const location of Array.from(locations).sort()) {
+      if (AGGREGATE_LOCATIONS.includes(location)) {
+        continue;
+      }
       const b = before[sku]?.[location] ?? 0;
       const a = after[sku]?.[location] ?? 0;
       const expectedAfter = b - (expected[location] ?? 0);

@@ -7,7 +7,7 @@
  * argv) and pass it down.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.DEFAULT_POLL_WINDOWS = exports.BASELINE_CUSTOMERS = exports.ALL_LOCATIONS = exports.PS_STORE = exports.CHERMSIDE_US = exports.STORE_99 = exports.WEB_DC = void 0;
+exports.DEFAULT_POLL_WINDOWS = exports.BASELINE_CUSTOMERS = exports.AGGREGATE_LOCATIONS = exports.ALL_LOCATIONS = exports.PS_STORE = exports.CHERMSIDE_US = exports.STORE_99 = exports.WEB_DC = void 0;
 exports.defaultConfig = defaultConfig;
 exports.customerFor = customerFor;
 exports.validateConfig = validateConfig;
@@ -19,6 +19,16 @@ exports.STORE_99 = "ATP#99";
 exports.CHERMSIDE_US = "ATP#407"; // BRANCH_407 (US)
 exports.PS_STORE = "ATP#640"; // BRANCH_640 (PS)
 exports.ALL_LOCATIONS = [exports.WEB_DC, exports.STORE_99, exports.CHERMSIDE_US, exports.PS_STORE];
+/**
+ * Known aggregate/pool location keys that some downstream staging process
+ * mirrors from real store stock asynchronously (observed: ATP#INTERNATIONAL
+ * picked up the same quantity written to ATP#100 within ~30-60s of seeding,
+ * with no seed/order action of ours targeting it). These are not real
+ * independent per-store stock and must be excluded from decrement
+ * assertions, or every case would intermittently fail on a location we never
+ * touched. Confirmed 2026-07-17 against staging-inventory-v2.
+ */
+exports.AGGREGATE_LOCATIONS = ["ATP#INTERNATIONAL", "ATP#STUDIO", "ATP#ALL"];
 exports.BASELINE_CUSTOMERS = {
     US: {
         id: "gid://shopify/Customer/8997370954001",

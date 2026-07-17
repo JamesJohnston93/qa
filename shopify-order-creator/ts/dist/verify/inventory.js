@@ -2,6 +2,7 @@
 /** Inventory decrement checks against staging-inventory-v2. Ports regression/verify/inventory.py. */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.assertDecrements = assertDecrements;
+const config_1 = require("../config");
 const index_1 = require("./index");
 /**
  * Inventory changed by exactly the expected amount at exactly the expected
@@ -10,12 +11,20 @@ const index_1 = require("./index");
  * before / after:        {sku: {storeKey: qty}} snapshots.
  * expectedDecrements:    {sku: {storeKey: units}} — e.g. an order of 2 units
  *                        allocated at ATP#100 expects {sku: {"ATP#100": 2}}.
+ *
+ * Aggregate/pool locations (AGGREGATE_LOCATIONS) are skipped: they mirror
+ * real store stock asynchronously and are not independent inventory, so
+ * comparing them here would intermittently fail cases on a location the
+ * seed/order never touched.
  */
 function assertDecrements(before, after, expectedDecrements, orderName) {
     for (const sku of Object.keys(before)) {
         const expected = expectedDecrements[sku] ?? {};
         const locations = new Set([...Object.keys(before[sku] ?? {}), ...Object.keys(after[sku] ?? {})]);
         for (const location of Array.from(locations).sort()) {
+            if (config_1.AGGREGATE_LOCATIONS.includes(location)) {
+                continue;
+            }
             const b = before[sku]?.[location] ?? 0;
             const a = after[sku]?.[location] ?? 0;
             const expectedAfter = b - (expected[location] ?? 0);

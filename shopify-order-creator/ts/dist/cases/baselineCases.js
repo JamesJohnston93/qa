@@ -27,7 +27,7 @@ function storeNumber(location) {
 }
 /** Builds the case set for the given store from its real variant pool (mirrors cases.build_cases). */
 function buildCases(store) {
-    const pool = Object.keys((0, variants_1.variantsFor)(store));
+    const pool = (0, variants_1.skuPoolFor)(store);
     if (pool.length < 4) {
         throw new Error(`variant pool for ${store} too small: ${JSON.stringify(pool)}`);
     }

@@ -15,7 +15,7 @@
  */
 
 import { WEB_DC, STORE_99, type Store } from "../config";
-import { variantsFor } from "../variants";
+import { skuPoolFor } from "../variants";
 
 export const UNDELIVERABLE = "UNDELIVERABLE";
 
@@ -38,7 +38,7 @@ function storeNumber(location: string): string {
 
 /** Builds the case set for the given store from its real variant pool (mirrors cases.build_cases). */
 export function buildCases(store: Store): Record<string, CaseDefinition> {
-  const pool = Object.keys(variantsFor(store));
+  const pool = skuPoolFor(store);
   if (pool.length < 4) {
     throw new Error(`variant pool for ${store} too small: ${JSON.stringify(pool)}`);
   }

@@ -19,6 +19,17 @@ export const PS_STORE = "ATP#640"; // BRANCH_640 (PS)
 
 export const ALL_LOCATIONS = [WEB_DC, STORE_99, CHERMSIDE_US, PS_STORE];
 
+/**
+ * Known aggregate/pool location keys that some downstream staging process
+ * mirrors from real store stock asynchronously (observed: ATP#INTERNATIONAL
+ * picked up the same quantity written to ATP#100 within ~30-60s of seeding,
+ * with no seed/order action of ours targeting it). These are not real
+ * independent per-store stock and must be excluded from decrement
+ * assertions, or every case would intermittently fail on a location we never
+ * touched. Confirmed 2026-07-17 against staging-inventory-v2.
+ */
+export const AGGREGATE_LOCATIONS = ["ATP#INTERNATIONAL", "ATP#STUDIO", "ATP#ALL"];
+
 // ---------------------------------------------------------------------------
 // Known baseline customers (existing staging customers, from main.py pools)
 // ---------------------------------------------------------------------------
