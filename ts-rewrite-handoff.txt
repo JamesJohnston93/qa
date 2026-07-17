@@ -1,0 +1,41 @@
+TypeScript rewrite handoff for QA automation harness
+=================================================
+
+Repository: /Users/james.johnston/Documents/GitHub/qa
+Project: shopify-order-creator/
+
+Status (Jul 17, 2026)
+---------------------
+A TypeScript rewrite scaffold has been created under shopify-order-creator/ts to start porting the Python regression baseline into a TS implementation aligned with the TAA/TAA-3 design docs.
+
+What exists now
+---------------
+- shopify-order-creator/ts/package.json and tsconfig.json for a minimal TS build/run setup
+- shopify-order-creator/ts/src/config.ts with baseline config and case names
+- shopify-order-creator/ts/src/runner.ts with a runnable case runner that produces a run summary
+- shopify-order-creator/ts/src/flows/orderFlow.ts with a first-order flow stub using client abstractions
+- shopify-order-creator/ts/src/clients/shopify.ts, dynamo.ts, and newstore.ts for module boundaries
+- shopify-order-creator/ts/src/verification/assertions.ts and report.ts for evidence output/reporting
+
+Verified locally
+----------------
+Commands run successfully:
+- cd /Users/james.johnston/Documents/GitHub/qa/shopify-order-creator/ts && npm install
+- cd /Users/james.johnston/Documents/GitHub/qa/shopify-order-creator/ts && npm run build
+- cd /Users/james.johnston/Documents/GitHub/qa/shopify-order-creator/ts && npm start
+
+Observed result:
+- TypeScript build succeeded
+- Runner executed successfully
+- Generated reports:
+  - shopify-order-creator/ts/reports/regression-report.md
+  - shopify-order-creator/ts/reports/regression-report.json
+
+Next implementation focus
+------------------------
+1. Full baseline case definitions (single, multi, unique, split, undeliverable, partial-undeliverable)
+2. Inventory seeding plus polling logic
+3. Readers and verification modules for Shopify, AWS/DynamoDB, and NewStore
+4. Repeat-run variance reporting and CLI flags matching the Python parity contract
+
+This scaffold is a runnable starting point for the TAA rewrite work and can be used as handoff context for later admin/co-working work.

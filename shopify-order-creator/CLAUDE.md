@@ -9,6 +9,14 @@ Interactive CLI + (in progress) regression package for placing test orders on Un
 
 Build a headless `/regression` package: deterministic baseline proving order → allocation → shipments → inventory correctness across all three systems. "These always need to work and behave exactly the same way." Later: TypeScript rewrite uses this baseline as its parity spec. Read `regression-package-design.md` before writing regression code — it is the source of truth for architecture, case set, and assertions.
 
+**Status (Jul 17):** `regression/` v0.1 built — runner, config, polling, readers, verify, reports, cases 1–6 (Shopify) implemented and logic-tested offline. **Not yet run against staging.** Before first run:
+
+1. `python -m regression.schema_probe --order <recent-order-number>` — confirm key schemas of `staging-orders-v2` / `staging-shipments`, then update `TABLE_SCHEMAS` in `regression/readers/dynamo_reader.py` and remove the `UNCONFIRMED` flags (readers refuse to run until then). Also check the allocated-store value format ('100' vs 'BRANCH_100') — normalize in dynamo_reader, not in cases.
+2. `python -m regression --cases single` — first live case; tune `PollWindows` in `regression/config.py` from the reported stage timings.
+3. NS cases 7–8 not wired: confirm the NewStore order read-back endpoint (see `regression/readers/newstore_reader.py` TODO).
+
+Also done: `draftOrderComplete` now returns `{order_id, order_name, created_at}` (graphql_scripts + orders_processor), and `ensure_stock`/`split_stock` accept `strict=True`.
+
 ## Stack & environment
 
 - **Staging only.** Shopify Admin GraphQL 2025-10: `universal-store-staging.myshopify.com` (US), `perfect-stranger-staging.myshopify.com` (PS).
@@ -56,3 +64,40 @@ Allocator reads `ATP#<store>` rows per SKU; store with all SKUs = single shipmen
 - `--repeat N` diffs JSON results between identical runs — variance is a flagged inconsistency (race-condition signal).
 - Don't modify CLI behaviour; extend modules additively (e.g. `strict=` kwargs, extra GraphQL selections).
 - Update the changelog in Confluence "QA Order CLI — Tool Documentation" when CLI-facing behaviour changes; track build progress on TAA-3.
+
+## TypeScript rewrite handoff (Jul 17, 2026)
+
+A TypeScript rewrite scaffold for the QA regression harness is now present under `ts/` and is aligned to the Python baseline in `regression-package-design.md` and `scope-of-work-reworked.md`.
+
+### What exists now
+
+- `ts/package.json` and `ts/tsconfig.json` to build/run a minimal TS harness.
+- `ts/src/config.ts` with baseline config + test case names.
+- `ts/src/runner.ts` with a runnable case runner that produces a run summary.
+- `ts/src/flows/orderFlow.ts` with a first-order flow stub that uses placeholder Shopify/Dynamo/NewStore client abstractions.
+- `ts/src/clients/shopify.ts`, `ts/src/clients/dynamo.ts`, and `ts/src/clients/newstore.ts` as module boundaries for the rewrite.
+- `ts/src/verification/assertions.ts` and `ts/src/report.ts` for evidence output and reporting.
+
+### Verified status
+
+The scaffold was verified locally with:
+
+- `cd /Users/james.johnston/Documents/GitHub/qa/shopify-order-creator/ts && npm install`
+- `cd /Users/james.johnston/Documents/GitHub/qa/shopify-order-creator/ts && npm run build`
+- `cd /Users/james.johnston/Documents/GitHub/qa/shopify-order-creator/ts && npm start`
+
+Observed result: the TypeScript build succeeded and the harness executed successfully, generating:
+
+- `ts/reports/regression-report.md`
+- `ts/reports/regression-report.json`
+
+### Next implementation focus
+
+The next implementation slice should port the real regression baseline logic from the Python package into the TS structure:
+
+1. Full baseline case definitions (single, multi, unique, split, undeliverable, partial-undeliverable).
+2. Inventory seeding plus polling logic.
+3. Readers and verification modules for Shopify, AWS/DynamoDB, and NewStore.
+4. Repeat-run variance reporting and CLI flags matching the Python parity contract.
+
+This scaffold is a runnable starting point for the TAA rewrite work and should be treated as the initial handoff artifact for follow-on co-working/admin work.

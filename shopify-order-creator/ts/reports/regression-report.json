@@ -1,0 +1,62 @@
+{
+  "store": "US",
+  "cases": [
+    {
+      "case": "single",
+      "store": "US",
+      "description": "Single-item order with stock at one ATP location",
+      "passed": true,
+      "orderId": "gid://shopify/Order/1784280223458",
+      "orderName": "#78379",
+      "stages": [
+        {
+          "name": "create_order",
+          "elapsed": 0
+        }
+      ]
+    },
+    {
+      "case": "multi",
+      "store": "US",
+      "description": "Three units of one SKU held in one shipment",
+      "passed": true,
+      "orderId": "gid://shopify/Order/1784280223459",
+      "orderName": "#20153",
+      "stages": [
+        {
+          "name": "create_order",
+          "elapsed": 0
+        }
+      ]
+    },
+    {
+      "case": "split",
+      "store": "US",
+      "description": "SKU stock spread across stores to force split allocation",
+      "passed": true,
+      "orderId": "gid://shopify/Order/1784280223459",
+      "orderName": "#85272",
+      "stages": [
+        {
+          "name": "create_order",
+          "elapsed": 0
+        }
+      ]
+    },
+    {
+      "case": "undeliverable",
+      "store": "US",
+      "description": "No stock available, refund path must be exercised",
+      "passed": true,
+      "orderId": "gid://shopify/Order/1784280223459",
+      "orderName": "#57321",
+      "stages": [
+        {
+          "name": "create_order",
+          "elapsed": 0
+        }
+      ]
+    }
+  ],
+  "passed": true
+}
