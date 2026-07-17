@@ -9,13 +9,20 @@ Interactive CLI + (in progress) regression package for placing test orders on Un
 
 Build a headless `/regression` package: deterministic baseline proving order → allocation → shipments → inventory correctness across all three systems. "These always need to work and behave exactly the same way." Later: TypeScript rewrite uses this baseline as its parity spec. Read `regression-package-design.md` before writing regression code — it is the source of truth for architecture, case set, and assertions.
 
-**Status (Jul 17):** `regression/` v0.1 built — runner, config, polling, readers, verify, reports, cases 1–6 (Shopify) implemented and logic-tested offline. **Not yet run against staging.** Before first run:
+**Direction change (Jul 17):** TypeScript rewrite happens FIRST (TAA-13), then the baseline runs in TS (TAA-3), then next phase. The Python `regression/` v0.1 package is the **executable reference spec** — port it, don't run it first. See `ts-rewrite-dev-doc.md` for the full porting guide.
 
-1. `python -m regression.schema_probe --order <recent-order-number>` — confirm key schemas of `staging-orders-v2` / `staging-shipments`, then update `TABLE_SCHEMAS` in `regression/readers/dynamo_reader.py` and remove the `UNCONFIRMED` flags (readers refuse to run until then). Also check the allocated-store value format ('100' vs 'BRANCH_100') — normalize in dynamo_reader, not in cases.
-2. `python -m regression --cases single` — first live case; tune `PollWindows` in `regression/config.py` from the reported stage timings.
-3. NS cases 7–8 not wired: confirm the NewStore order read-back endpoint (see `regression/readers/newstore_reader.py` TODO).
+**TS state (`ts/`, commits 9279f00 / 435fe42 / in progress):** runnable scaffold, now gaining real logic per TAA-13. Done: CLI (`src/cli.ts` + `run-regression.sh`), cases 1–6 declared (`src/cases/baselineCases.ts`), real Shopify client with `order { id name }` capture, reports, offline inventory-assertion tests, **`src/polling.ts` ported from `regression/polling.py`** (`pollUntil`/`StageTimeout`, offline-tested in `tests/polling.test.js`). **Stubs — not real yet:** `clients/dynamo.ts` (`getInventory` → `[]`), `clients/newstore.ts` (hardcoded IDs), readers (financial status hardcoded "PAID"), `--repeat` ignored, refund/cleanup stages unwired, no schema guard. The `ts/reports/` sample came from a dry run, NOT staging.
 
-Also done: `draftOrderComplete` now returns `{order_id, order_name, created_at}` (graphql_scripts + orders_processor), and `ensure_stock`/`split_stock` accept `strict=True`.
+**Next priorities (in order — everything else is blocked on 1–2):**
+
+1. ~~Port `regression/polling.py` → TS~~ — done (`src/polling.ts`).
+2. Real `clients/dynamo.ts`: AWS SDK v3, `fromSSO({profile:"staging"})`, strict-only failures, `zeroEverywhere` via SKU-PK query on `staging-inventory-v2`. Port the `TABLE_SCHEMAS` + `UNCONFIRMED` guard from `regression/readers/dynamo_reader.py` — readers must refuse to run on guessed schemas. Confirm schemas once via `python -m regression.schema_probe --order <recent-order-number>` (check allocated-store value format: '100' vs 'BRANCH_100').
+3. Real readers (Shopify read-back incl. refunds — port `regression/readers/shopify_reader.py`), then refund/cleanup stages, then `--repeat` variance diff (port `report.py` stable_signature/diff_repeats).
+4. NS cases 7–8: confirm NewStore read-back endpoint first (see `regression/readers/newstore_reader.py` TODO).
+
+Track progress on [TAA-13](https://universalstore.atlassian.net/browse/TAA-13) — its checklist mirrors this list; tick items as they land.
+
+Python-side changes already made: `draftOrderComplete` returns `{order_id, order_name, created_at}` (graphql_scripts + orders_processor); `ensure_stock`/`split_stock` accept `strict=True`.
 
 ## Stack & environment
 
