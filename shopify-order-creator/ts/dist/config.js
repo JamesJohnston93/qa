@@ -31,16 +31,14 @@ exports.ALL_LOCATIONS = [exports.WEB_DC, exports.STORE_99, exports.CHERMSIDE_US,
 exports.AGGREGATE_LOCATIONS = ["ATP#INTERNATIONAL", "ATP#STUDIO", "ATP#ALL"];
 exports.BASELINE_CUSTOMERS = {
     US: {
-        id: "gid://shopify/Customer/8997370954001",
-        email: "jared.davis@universalstore.com.au",
-        firstName: "Jared",
-        lastName: "Davis",
+        email: "QAauto@universal.com",
+        firstName: "JJQA",
+        lastName: "AutoUS",
     },
     PS: {
-        id: "gid://shopify/Customer/22959422669092",
-        email: "jared.davis@universalstore.com.au",
-        firstName: "Jared",
-        lastName: "Davis",
+        email: "QAauto@perfectstranger.com",
+        firstName: "JJQA",
+        lastName: "AutoPS",
     },
 };
 exports.DEFAULT_POLL_WINDOWS = {

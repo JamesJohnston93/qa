@@ -49,7 +49,7 @@ export async function placeOrder(
 
   const customer = customerFor(config);
   const shopify = new ShopifyClient(config.store);
-  const result = await shopify.createDraftOrder(customer.id, customer.email, lineItems, customer.firstName, customer.lastName);
+  const result = await shopify.createDraftOrder(customer.email, lineItems, customer.firstName, customer.lastName);
 
   return {
     orderId: result.orderId,

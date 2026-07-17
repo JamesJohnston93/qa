@@ -35,16 +35,27 @@
  *   "TRANSACTION#<ts>" - event log (CREATE_ORDER, etc.)
  *
  * staging-shipments row shapes (by SK prefix):
- *   "ITEM#<uuid>"        - one row per unit (sku, status, rejectedStores, shipmentId once allocated)
+ *   "ITEM#<uuid>"        - one row per unit (sku, status, rejectedStores, shipmentId once allocated).
+ *                          After undeliverable cleanup the row is NOT deleted - status flips
+ *                          UNDELIVERABLE -> REMOVED (confirmed live, ~40-60s after the refund).
  *   "SHIPMENT#<id>"      - allocatedStore, carrier, status, packages, shippingAddress
- *   "TRANSACTION#<ts>"   - event log (SHIPMENT_CREATE, REALLOCATION, etc.)
+ *   "TRANSACTION#<ts>"   - event log (SHIPMENT_CREATE, REALLOCATION, SHIPMENT_ITEM_REMOVED, etc.)
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.DynamoReader = exports.UNDELIVERABLE = void 0;
+exports.DynamoReader = exports.REMOVED = exports.UNDELIVERABLE = void 0;
 exports.allocationSummary = allocationSummary;
 const lib_dynamodb_1 = require("@aws-sdk/lib-dynamodb");
 const ORIGIN_INDEX = "origin_index";
 exports.UNDELIVERABLE = "UNDELIVERABLE";
+/**
+ * Terminal status an ITEM# row carries after undeliverable cleanup. The row
+ * is NOT deleted — confirmed live (orders #9706/#9707): staging-shipments
+ * flips the item's `status` from UNDELIVERABLE to REMOVED roughly 40-60s
+ * after the Shopify refund lands, and a SHIPMENT_ITEM_REMOVED transaction
+ * row is appended. assertItemsRemoved checks for this status, not row
+ * absence.
+ */
+exports.REMOVED = "REMOVED";
 function originFor(store, orderIdTail) {
     return `${store}#SHOPIFY_ECOM#${orderIdTail}`;
 }

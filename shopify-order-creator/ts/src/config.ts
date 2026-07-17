@@ -31,11 +31,15 @@ export const ALL_LOCATIONS = [WEB_DC, STORE_99, CHERMSIDE_US, PS_STORE];
 export const AGGREGATE_LOCATIONS = ["ATP#INTERNATIONAL", "ATP#STUDIO", "ATP#ALL"];
 
 // ---------------------------------------------------------------------------
-// Known baseline customers (existing staging customers, from main.py pools)
+// Baseline customers — no pre-existing Shopify customer GID is used. Orders
+// are placed with just an email + name; Shopify creates/attaches the
+// customer record automatically on first use of that email (confirmed by
+// JJ, 2026-07-17). Previously this pointed at an existing staff customer
+// (Jared Davis) — replaced with a dedicated QA-automation identity per store
+// so test orders are clearly attributable in Shopify admin.
 // ---------------------------------------------------------------------------
 
 export interface Customer {
-  id: string;
   email: string;
   firstName: string;
   lastName: string;
@@ -43,16 +47,14 @@ export interface Customer {
 
 export const BASELINE_CUSTOMERS: Record<Store, Customer> = {
   US: {
-    id: "gid://shopify/Customer/8997370954001",
-    email: "jared.davis@universalstore.com.au",
-    firstName: "Jared",
-    lastName: "Davis",
+    email: "QAauto@universal.com",
+    firstName: "JJQA",
+    lastName: "AutoUS",
   },
   PS: {
-    id: "gid://shopify/Customer/22959422669092",
-    email: "jared.davis@universalstore.com.au",
-    firstName: "Jared",
-    lastName: "Davis",
+    email: "QAauto@perfectstranger.com",
+    firstName: "JJQA",
+    lastName: "AutoPS",
   },
 };
 

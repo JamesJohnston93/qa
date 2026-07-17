@@ -1,6 +1,6 @@
 /** Allocation-state checks against staging-shipments ITEM# rows. Ports regression/verify/shipments.py. */
 
-import type { AllocationSummary, ShipmentItem } from "../readers/dynamoReader";
+import { REMOVED, type AllocationSummary, type ShipmentItem } from "../readers/dynamoReader";
 import { VerificationError } from "./index";
 
 function mapsEqual(a: Record<string, number>, b: Record<string, number>): boolean {
@@ -76,14 +76,22 @@ export function assertAllocation(
   }
 }
 
-/** After undeliverable cleanup, the refunded SKUs have no ITEM# rows left. */
+/**
+ * After undeliverable cleanup, the refunded SKUs' ITEM# rows have transitioned
+ * to status REMOVED. The row is NOT deleted from staging-shipments (confirmed
+ * live) - only its status changes, so this checks status rather than absence.
+ */
 export function assertItemsRemoved(shipmentItems: ShipmentItem[], removedSkus: string[], orderName: string): void {
-  const remaining = Array.from(new Set(shipmentItems.filter((item) => removedSkus.includes(item.sku)).map((item) => item.sku))).sort();
-  if (remaining.length > 0) {
+  const notRemoved = Array.from(
+    new Set(
+      shipmentItems.filter((item) => removedSkus.includes(item.sku) && item.status !== REMOVED).map((item) => item.sku),
+    ),
+  ).sort();
+  if (notRemoved.length > 0) {
     throw new VerificationError(
       "shipments.cleanup",
-      `no rows for ${JSON.stringify([...removedSkus].sort())}`,
-      `rows still present for ${JSON.stringify(remaining)}`,
+      `status=${REMOVED} for ${JSON.stringify([...removedSkus].sort())}`,
+      `not yet ${REMOVED} for ${JSON.stringify(notRemoved)}`,
       `order ${orderName}`,
     );
   }

@@ -52,10 +52,16 @@ test('assertAllocation accepts UNDELIVERABLE as an expected terminal state', () 
   assert.doesNotThrow(() => assertAllocation(summary, { sku1: 'UNDELIVERABLE' }, '#1'));
 });
 
-test('assertItemsRemoved passes once the refunded sku has no ITEM# rows left', () => {
+test('assertItemsRemoved passes when the refunded sku has no rows at all', () => {
   assert.doesNotThrow(() => assertItemsRemoved([item('sku2', '100')], ['sku1'], '#1'));
 });
 
-test('assertItemsRemoved throws shipments.cleanup while a removed sku still has rows', () => {
-  assert.throws(() => assertItemsRemoved([item('sku1', 'UNDELIVERABLE')], ['sku1'], '#1'), /shipments\.cleanup/);
+test('assertItemsRemoved passes once the row exists but its status has flipped to REMOVED (the row is never deleted, confirmed live)', () => {
+  const removedRow = item('sku1', 'UNDELIVERABLE', 'REMOVED');
+  assert.doesNotThrow(() => assertItemsRemoved([removedRow], ['sku1'], '#1'));
+});
+
+test('assertItemsRemoved throws shipments.cleanup while the row is still UNDELIVERABLE (not yet REMOVED)', () => {
+  const stillUndeliverable = item('sku1', 'UNDELIVERABLE', 'UNDELIVERABLE');
+  assert.throws(() => assertItemsRemoved([stillUndeliverable], ['sku1'], '#1'), /shipments\.cleanup/);
 });

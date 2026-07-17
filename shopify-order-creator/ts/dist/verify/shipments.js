@@ -4,6 +4,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.assertUnitCounts = assertUnitCounts;
 exports.assertAllocation = assertAllocation;
 exports.assertItemsRemoved = assertItemsRemoved;
+const dynamoReader_1 = require("../readers/dynamoReader");
 const index_1 = require("./index");
 function mapsEqual(a, b) {
     const aKeys = Object.keys(a);
@@ -49,10 +50,14 @@ function assertAllocation(summary, expectedAllocation, orderName) {
         }
     }
 }
-/** After undeliverable cleanup, the refunded SKUs have no ITEM# rows left. */
+/**
+ * After undeliverable cleanup, the refunded SKUs' ITEM# rows have transitioned
+ * to status REMOVED. The row is NOT deleted from staging-shipments (confirmed
+ * live) - only its status changes, so this checks status rather than absence.
+ */
 function assertItemsRemoved(shipmentItems, removedSkus, orderName) {
-    const remaining = Array.from(new Set(shipmentItems.filter((item) => removedSkus.includes(item.sku)).map((item) => item.sku))).sort();
-    if (remaining.length > 0) {
-        throw new index_1.VerificationError("shipments.cleanup", `no rows for ${JSON.stringify([...removedSkus].sort())}`, `rows still present for ${JSON.stringify(remaining)}`, `order ${orderName}`);
+    const notRemoved = Array.from(new Set(shipmentItems.filter((item) => removedSkus.includes(item.sku) && item.status !== dynamoReader_1.REMOVED).map((item) => item.sku))).sort();
+    if (notRemoved.length > 0) {
+        throw new index_1.VerificationError("shipments.cleanup", `status=${dynamoReader_1.REMOVED} for ${JSON.stringify([...removedSkus].sort())}`, `not yet ${dynamoReader_1.REMOVED} for ${JSON.stringify(notRemoved)}`, `order ${orderName}`);
     }
 }

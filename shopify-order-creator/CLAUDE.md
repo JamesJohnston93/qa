@@ -24,6 +24,10 @@ Build a headless `/regression` package: deterministic baseline proving order →
 
 **Also fixed while investigating:** `cases/baselineCases.ts` built its SKU pool via `Object.keys(variantsFor(store))` — since every SKU is a canonical-integer string (e.g. `"32625134"`), JS enumerates those keys in ascending numeric order regardless of declaration order (unlike Python dicts, which preserve insertion order), so `sku(0)` silently resolved to the numerically-smallest SKU instead of the first-declared one. Fixed with explicit `US_SKU_ORDER`/`PS_SKU_ORDER` arrays in `variants.ts` (`skuPoolFor()`), matching the Python reference's case-to-SKU assignment.
 
+**Re-run `--cases single`: PASS.** Full 6-case set: **4/6 passed** (single, multi, unique, split); `undeliverable`/`partial_undeliverable` both timed out on the `cleanup` stage (300s). Root cause: **staging-shipments never deletes the refunded SKU's `ITEM#` row** — confirmed live (orders #9706/#9707) that its `status` instead flips `UNDELIVERABLE` → `REMOVED` roughly 40–60s after the Shopify refund lands, plus a `SHIPMENT_ITEM_REMOVED` transaction row is appended. `assertItemsRemoved` (`verify/shipments.ts`) was checking for row *absence*, which never happens — fixed to check `status === REMOVED` (new constant in `readers/dynamoReader.ts`) instead. Re-run pending to confirm and capture real `cleanup` timings for `PollWindows` tuning.
+
+**Customer identity changed (JJ, 2026-07-17):** no pre-existing Shopify customer GID is used anymore — orders are placed with just an email + name, and Shopify creates/attaches the customer automatically on first use of that email. `BASELINE_CUSTOMERS` (`config.ts`) replaced the previous staff identity (Jared Davis) with a dedicated QA-automation identity per store: US = `JJQA AutoUS` / `QAauto@universal.com`, PS = `JJQA AutoPS` / `QAauto@perfectstranger.com`. `ShopifyClient.createDraftOrder` (`clients/shopify.ts`) no longer takes/sends `customerId`.
+
 **Next priorities (in order — everything else is blocked on 1–2):**
 
 1. ~~Port `regression/polling.py` → TS~~ — done (`src/polling.ts`).
@@ -31,8 +35,8 @@ Build a headless `/regression` package: deterministic baseline proving order →
 3. ~~Real readers + schema confirmation~~ — done (`readers/shopifyReader.ts`, `readers/dynamoReader.ts`, `verify/*.ts`).
 4. ~~Wire the full stage chain in `runner.ts`~~ — done.
 5. ~~`--repeat` variance diff~~ — done (`report.ts`, `cli.ts`).
-6. ~~Extend offline tests~~ — done (34 tests, `npm test`).
-7. Re-run `--cases single` live to confirm the two fixes above land it green, then the full 6-case set, then `--repeat 3`. Tune `PollWindows` from recorded stage timings.
+6. ~~Extend offline tests~~ — done (35 tests, `npm test`).
+7. Re-run `undeliverable`/`partial_undeliverable` to confirm the `REMOVED`-status fix, then the full 6-case set again, then `--repeat 3`. Tune `PollWindows` from recorded stage timings (observed so far: `orders_table` ~11–26s vs 120s budget, `allocation` ~5–36s vs 420s, `refund` ~17s vs 300s — all much tighter than the current defaults).
 8. NS cases 7–8: confirm NewStore read-back endpoint first (see `regression/readers/newstore_reader.py` TODO).
 
 Track progress on [TAA-13](https://universalstore.atlassian.net/browse/TAA-13) — its checklist mirrors this list; tick items as they land.

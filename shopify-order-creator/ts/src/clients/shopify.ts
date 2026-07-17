@@ -44,14 +44,20 @@ export class ShopifyClient {
     return (await response.json()) as GraphQLResponse<T>;
   }
 
+  /**
+   * No customerId is passed: Shopify creates/attaches a customer from
+   * `customerEmail` automatically on first use of that email (confirmed by
+   * JJ — this is intended, not a fallback). Every regression run reuses the
+   * same per-store QA-automation email (config.BASELINE_CUSTOMERS), so the
+   * customer is only actually created once, on the very first order.
+   */
   async createDraftOrder(
-    customerId: string,
     customerEmail: string,
     lineItems: ShopifyLineItemInput[],
     firstName: string,
     lastName: string,
   ): Promise<ShopifyOrderResult> {
-    const shippingRateHandle = await this.fetchShippingRateHandle(customerId, customerEmail, lineItems);
+    const shippingRateHandle = await this.fetchShippingRateHandle(customerEmail, lineItems, firstName, lastName);
 
     const result = await this.execute<{
       draftOrderCreate: {
@@ -60,8 +66,7 @@ export class ShopifyClient {
       };
     }>(DRAFT_ORDER_CREATE, {
       input: {
-        customerId,
-        note: "Jared order for QA",
+        note: "QA regression order",
         email: customerEmail,
         taxExempt: false,
         tags: ["foo", "bar"],
@@ -117,9 +122,10 @@ export class ShopifyClient {
 
   /** Mirrors orders_processor.fetch_shipping_rates: calculates real rates and returns the first handle. */
   private async fetchShippingRateHandle(
-    customerId: string,
     customerEmail: string,
     lineItems: ShopifyLineItemInput[],
+    firstName: string,
+    lastName: string,
   ): Promise<string> {
     const result = await this.execute<{
       draftOrderCalculate: {
@@ -130,9 +136,8 @@ export class ShopifyClient {
       };
     }>(DRAFT_ORDER_CALCULATE, {
       input: {
-        customerId,
         email: customerEmail,
-        shippingAddress: mockAddress("Jared", "Davis"),
+        shippingAddress: mockAddress(firstName, lastName),
         lineItems,
       },
     });
