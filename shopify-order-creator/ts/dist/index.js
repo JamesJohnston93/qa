@@ -1,15 +1,9 @@
+#!/usr/bin/env node
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-const config_1 = require("./config");
-const runner_1 = require("./runner");
-const report_1 = require("./report");
+const cli_1 = require("./cli");
 async function main() {
-    console.log("QA TypeScript rewrite scaffold initialized");
-    const summary = await (0, runner_1.run)(config_1.DEFAULT_CONFIG);
-    const reportPaths = (0, report_1.writeReport)(summary);
-    console.log(JSON.stringify(summary, null, 2));
-    console.log(`Report markdown: ${reportPaths.markdown}`);
-    console.log(`Report json: ${reportPaths.json}`);
+    await (0, cli_1.runCli)();
 }
 main().catch((error) => {
     console.error(error);

@@ -5,6 +5,9 @@ exports.DEFAULT_CONFIG = {
     store: "US",
     repeat: 1,
     verbose: true,
+    reportDir: "./reports",
+    help: false,
+    listCases: false,
 };
 exports.CASES = [
     {

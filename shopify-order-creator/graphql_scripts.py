@@ -87,13 +87,19 @@ def get_complete_draft_order():
 
     Must be called after get_create_draft_order. This converts the draft into
     a real Shopify order and processes payment. Returns createdAt as a
-    confirmation timestamp — if this field is present, the order was placed.
+    confirmation timestamp, plus the created order's id and name — these
+    identifiers are what downstream verification (the regression package)
+    uses to read the order back and correlate it across systems.
     """
     return """
     mutation draftOrderComplete($id: ID!) {
         draftOrderComplete(id: $id) {
             draftOrder {
                 createdAt
+                order {
+                    id
+                    name
+                }
             }
             userErrors {
                 field

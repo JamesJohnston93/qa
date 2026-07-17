@@ -72,11 +72,14 @@ A TypeScript rewrite scaffold for the QA regression harness is now present under
 ### What exists now
 
 - `ts/package.json` and `ts/tsconfig.json` to build/run a minimal TS harness.
-- `ts/src/config.ts` with baseline config + test case names.
-- `ts/src/runner.ts` with a runnable case runner that produces a run summary.
-- `ts/src/flows/orderFlow.ts` with a first-order flow stub that uses placeholder Shopify/Dynamo/NewStore client abstractions.
+- `ts/src/config.ts` with baseline config + case selection and report-dir support.
+- `ts/src/cli.ts` with CLI parsing for `--store`, `--cases`, `--repeat`, `--report-dir`, `--quiet`, `--list-cases`, and `--help`.
+- `ts/src/runner.ts` with a runnable case runner that emits a structured stage list including inventory preparation, order creation, Shopify verification, allocation verification, and inventory decrement checks.
+- `ts/src/flows/orderFlow.ts` and `ts/src/flows/inventoryFlow.ts` implementing the first-order flow for inventory prep before order placement.
 - `ts/src/clients/shopify.ts`, `ts/src/clients/dynamo.ts`, and `ts/src/clients/newstore.ts` as module boundaries for the rewrite.
-- `ts/src/verification/assertions.ts` and `ts/src/report.ts` for evidence output and reporting.
+- `ts/src/verification/verification.ts` and `ts/src/report.ts` for evidence output and reporting.
+- `ts/tests/verification.test.js` with offline tests for the new inventory decrement assertion.
+- `run-regression.sh` at the repo root as a wrapper that builds/runs the TS harness from the repository root.
 
 ### Verified status
 
@@ -84,20 +87,21 @@ The scaffold was verified locally with:
 
 - `cd /Users/james.johnston/Documents/GitHub/qa/shopify-order-creator/ts && npm install`
 - `cd /Users/james.johnston/Documents/GitHub/qa/shopify-order-creator/ts && npm run build`
-- `cd /Users/james.johnston/Documents/GitHub/qa/shopify-order-creator/ts && npm start`
+- `cd /Users/james.johnston/Documents/GitHub/qa/shopify-order-creator/ts && node --test tests/verification.test.js`
+- `cd /Users/james.johnston/Documents/GitHub/qa/shopify-order-creator && ./run-regression.sh --store US --cases single,multi --repeat 1 --report-dir ./reports`
 
-Observed result: the TypeScript build succeeded and the harness executed successfully, generating:
+Observed result: the TypeScript build succeeded, the offline verification tests passed, and the harness executed successfully, generating:
 
 - `ts/reports/regression-report.md`
 - `ts/reports/regression-report.json`
 
 ### Next implementation focus
 
-The next implementation slice should port the real regression baseline logic from the Python package into the TS structure:
+The next implementation slice should continue porting the real regression baseline logic from the Python package into the TS structure:
 
-1. Full baseline case definitions (single, multi, unique, split, undeliverable, partial-undeliverable).
-2. Inventory seeding plus polling logic.
-3. Readers and verification modules for Shopify, AWS/DynamoDB, and NewStore.
-4. Repeat-run variance reporting and CLI flags matching the Python parity contract.
+1. Full baseline case definitions (single, multi, unique, split, undeliverable, partial-undeliverable) now available in `ts/src/cases/baselineCases.ts`.
+2. Inventory seeding plus deeper polling logic and live read-back readers.
+3. Readers and verification modules for Shopify, AWS/DynamoDB, and NewStore should be tightened further against the live staging schemas.
+4. Repeat-run variance reporting and CLI flags matching the Python parity contract should be iterated after schema confirmation.
 
 This scaffold is a runnable starting point for the TAA rewrite work and should be treated as the initial handoff artifact for follow-on co-working/admin work.

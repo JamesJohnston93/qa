@@ -4,9 +4,13 @@
   "private": true,
   "description": "TypeScript parity scaffold for the QA regression harness",
   "main": "dist/index.js",
+  "bin": {
+    "qa-order-tool-ts": "dist/index.js"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "cli": "node dist/index.js"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

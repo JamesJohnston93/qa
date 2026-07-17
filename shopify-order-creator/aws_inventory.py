@@ -228,6 +228,7 @@ def ensure_stock(
     min_quantity: int | None = None,
     top_up_to: int | None = None,
     verbose: bool = True,
+    strict: bool = False,
 ) -> dict[str, int]:
     """
     Checks stock for each SKU and tops up any that are below the threshold.
@@ -248,10 +249,16 @@ def ensure_stock(
         top_up_to:    Target quantity to set when topping up.
                       Defaults to AWS_CONFIG["top_up_quantity"].
         verbose:      If True, prints a status line for each SKU.
+        strict:       If True, AWS failures raise instead of being swallowed.
+                      The regression package always passes strict=True — a
+                      silently skipped inventory step would make every
+                      downstream assertion meaningless. The CLI keeps the
+                      default (False) so casual use still works without AWS.
 
     Returns:
-        Dict of {sku: final_quantity}. Returns empty dict on AWS failure
-        (the calling code continues with order placement regardless).
+        Dict of {sku: final_quantity}. In non-strict mode, returns empty dict
+        on AWS failure (the calling code continues with order placement
+        regardless).
     """
     store      = store_key or AWS_CONFIG["store_key"]
     min_qty    = min_quantity if min_quantity is not None else AWS_CONFIG["min_quantity_threshold"]
@@ -283,12 +290,16 @@ def ensure_stock(
                 results[sku] = current
 
     except (NoCredentialsError, ProfileNotFound):
+        if strict:
+            raise
         # AWS credentials aren't configured. Print help and carry on.
         print(_credential_help())
         print("    [inventory] Skipping — proceeding with order anyway.")
         return {}
 
     except ClientError as e:
+        if strict:
+            raise
         print(f"    [inventory] {_format_client_error(e)}")
         print("    [inventory] Skipping — proceeding with order anyway.")
         return {}
@@ -301,6 +312,7 @@ def split_stock(
     locations: list[str] | None = None,
     quantity: int = 1,
     verbose: bool = True,
+    strict: bool = False,
 ) -> dict[str, dict[str, int]]:
     """
     Sets each SKU to a small quantity at each of the split locations.
@@ -319,10 +331,13 @@ def split_stock(
                    (ATP#100, ATP#99, ATP#407, ATP#640).
         quantity:  Stock level to set at each location. Default is 1.
         verbose:   If True, prints a line for each SKU × location combination.
+        strict:    If True, AWS failures raise instead of being swallowed.
+                   Always used by the regression package; CLI default is False.
 
     Returns:
-        Nested dict {sku: {location: quantity_set}}. Returns empty dict on
-        AWS failure (the calling code continues with order placement regardless).
+        Nested dict {sku: {location: quantity_set}}. In non-strict mode,
+        returns empty dict on AWS failure (the calling code continues with
+        order placement regardless).
     """
     locs = locations or SPLIT_LOCATIONS
     results: dict[str, dict[str, int]] = {}
@@ -337,12 +352,16 @@ def split_stock(
                 results[sku][loc] = quantity
 
     except (NoCredentialsError, ProfileNotFound):
+        if strict:
+            raise
         # AWS credentials aren't configured. Print help and carry on.
         print(_credential_help())
         print("    [inventory] Skipping — proceeding with order anyway.")
         return {}
 
     except ClientError as e:
+        if strict:
+            raise
         print(f"    [inventory] {_format_client_error(e)}")
         print("    [inventory] Skipping — proceeding with order anyway.")
         return {}

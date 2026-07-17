@@ -4,55 +4,41 @@
     {
       "case": "single",
       "store": "US",
-      "description": "Single-item order with stock at one ATP location",
+      "description": "Single item, stock at one location",
       "passed": true,
-      "orderId": "gid://shopify/Order/1784280223458",
-      "orderName": "#78379",
+      "orderId": "gid://shopify/Order/1784282190861",
+      "orderName": "#66445",
       "stages": [
         {
-          "name": "create_order",
+          "name": "prepare_inventory",
           "elapsed": 0
-        }
-      ]
-    },
-    {
-      "case": "multi",
-      "store": "US",
-      "description": "Three units of one SKU held in one shipment",
-      "passed": true,
-      "orderId": "gid://shopify/Order/1784280223459",
-      "orderName": "#20153",
-      "stages": [
+        },
         {
           "name": "create_order",
+          "elapsed": 0.8
+        },
+        {
+          "name": "verify_order_shape",
           "elapsed": 0
-        }
-      ]
-    },
-    {
-      "case": "split",
-      "store": "US",
-      "description": "SKU stock spread across stores to force split allocation",
-      "passed": true,
-      "orderId": "gid://shopify/Order/1784280223459",
-      "orderName": "#85272",
-      "stages": [
+        },
         {
-          "name": "create_order",
+          "name": "verify_shopify_order",
           "elapsed": 0
-        }
-      ]
-    },
-    {
-      "case": "undeliverable",
-      "store": "US",
-      "description": "No stock available, refund path must be exercised",
-      "passed": true,
-      "orderId": "gid://shopify/Order/1784280223459",
-      "orderName": "#57321",
-      "stages": [
+        },
         {
-          "name": "create_order",
+          "name": "verify_orders_table",
+          "elapsed": 0
+        },
+        {
+          "name": "verify_unit_counts",
+          "elapsed": 0
+        },
+        {
+          "name": "verify_allocation",
+          "elapsed": 0
+        },
+        {
+          "name": "verify_inventory_decrements",
           "elapsed": 0
         }
       ]

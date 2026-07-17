@@ -410,14 +410,25 @@ def create_draft_order(
     return result["data"]["draftOrderCreate"]["draftOrder"]["id"]
 
 
-def complete_draft_order(draft_order_id: str):
+def complete_draft_order(draft_order_id: str) -> dict:
     """
     Completes (finalises) a draft order, converting it into a real Shopify order.
 
     This is the last step in the order placement flow. After this call the
     order appears in the Shopify admin and triggers any configured webhooks.
 
-    Raises Exception if Shopify returns userErrors (e.g. inventory issues).
+    Returns:
+        Dict with the created order's identifiers:
+            {
+                "order_id":   "gid://shopify/Order/123..."  (GID),
+                "order_name": "#1234"                        (display name),
+                "created_at": "2026-07-17T...Z",
+            }
+        The CLI ignores this return value; the regression package relies on it
+        to read the order back and correlate it across Shopify / AWS / NewStore.
+
+    Raises Exception if Shopify returns userErrors (e.g. inventory issues) or
+    if the completed draft does not contain an order (payment not processed).
     """
     result = active_client.execute(
         query=get_complete_draft_order(),
@@ -426,6 +437,18 @@ def complete_draft_order(draft_order_id: str):
     errors = result["data"]["draftOrderComplete"]["userErrors"]
     if errors:
         raise Exception(f"draftOrderComplete failed: {errors}")
+
+    draft = result["data"]["draftOrderComplete"]["draftOrder"] or {}
+    order = draft.get("order") or {}
+    if not order.get("id"):
+        raise Exception(
+            f"draftOrderComplete returned no order for draft {draft_order_id}: {result}"
+        )
+    return {
+        "order_id":   order["id"],
+        "order_name": order.get("name", ""),
+        "created_at": draft.get("createdAt", ""),
+    }
 
 
 # ---------------------------------------------------------------------------

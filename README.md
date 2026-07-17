@@ -9,12 +9,48 @@ QA automation space for Universal Store / Perfect Stranger — tooling that plac
 
 | Folder | Contents |
 | --- | --- |
-| `shopify-order-creator/` | Order-creation CLI + (in progress, TAA-3) deterministic regression package for omni-channel alignment. See its `CLAUDE.md` and `regression-package-design.md`. |
+| `shopify-order-creator/` | Python baseline and the TypeScript rewrite scaffold for the TAA-3 regression harness. See its `CLAUDE.md`, `regression-package-design.md`, and `ts-rewrite-dev-doc.md`. |
+| `shopify-order-creator/ts/` | TypeScript rewrite of the regression harness with a CLI entry point, case runner, verification modules, and report generation. |
 
-Standalone QA scripts will be added as sibling folders.
+Standalone QA scripts can be added as sibling folders later.
 
-## Status
+## Current status
 
-Phase 0 (TAA-3): building the headless `/regression` baseline — order → allocation → shipments → inventory correctness across Shopify, AWS, and NewStore. The TypeScript rewrite (see `shopify-order-creator/scope-of-work-reworked.md`) uses this baseline as its parity spec.
+The TypeScript rewrite is now in a runnable scaffold state. The harness includes:
+
+- a local CLI entry point under `shopify-order-creator/ts/src/cli.ts`
+- a repo-root wrapper script at `shopify-order-creator/run-regression.sh`
+- baseline case definitions for single, multi, unique, split, undeliverable, and partial-undeliverable flows
+- explicit stages for inventory preparation, order creation, Shopify verification, allocation verification, and inventory-decrement checks
+- report output written to `shopify-order-creator/ts/reports/`
+
+The Python package under `shopify-order-creator/regression/` remains the executable reference spec while the TypeScript path is being brought up to parity.
+
+## Run it locally
+
+From the repository root:
+
+```bash
+./shopify-order-creator/run-regression.sh --help
+./shopify-order-creator/run-regression.sh --store US --cases single --repeat 1 --report-dir ./reports
+```
+
+Or directly from the TypeScript project:
+
+```bash
+cd shopify-order-creator/ts
+npm run build
+node dist/index.js --store US --cases single --repeat 1 --report-dir ./reports
+```
+
+## Verification
+
+The TypeScript project currently verifies the new inventory-decrement assertion logic with a lightweight offline test harness:
+
+```bash
+cd shopify-order-creator/ts
+npm run build
+node --test tests/verification.test.js
+```
 
 All tooling targets **staging only**.

@@ -1,4 +1,6 @@
 import type { RunSummary } from "./runner";
+import * as fs from "fs";
+import * as path from "path";
 
 export interface ReportPaths {
   markdown: string;
@@ -6,19 +8,20 @@ export interface ReportPaths {
   passed: boolean;
 }
 
-export function writeReport(summary: RunSummary): ReportPaths {
+export function writeReport(summary: RunSummary, reportDir = "./reports"): ReportPaths {
   const markdown = [
     "# QA TypeScript Regression Run",
     "",
     `Store: ${summary.store}`,
     "",
-    ...summary.cases.map((entry) => `- ${entry.case}: ${entry.passed ? "PASS" : "FAIL"} (${entry.orderId})`),
+    ...summary.cases.map((entry) => {
+      const stageSummary = entry.stages.map((stage) => `${stage.name}=${stage.elapsed.toFixed(1)}s`).join(", ");
+      return `- ${entry.case}: ${entry.passed ? "PASS" : "FAIL"} | order=${entry.orderId} | stages=${stageSummary}`;
+    }),
     "",
   ].join("\n");
 
-  const outDir = "./reports";
-  const fs = require("fs");
-  const path = require("path");
+  const outDir = reportDir;
   fs.mkdirSync(outDir, { recursive: true });
   const markdownPath = path.join(outDir, "regression-report.md");
   const jsonPath = path.join(outDir, "regression-report.json");

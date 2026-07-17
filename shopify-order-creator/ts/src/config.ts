@@ -4,12 +4,19 @@ export interface RegressionConfig {
   store: Store;
   repeat: number;
   verbose: boolean;
+  caseNames?: string[];
+  reportDir?: string;
+  help?: boolean;
+  listCases?: boolean;
 }
 
 export const DEFAULT_CONFIG: RegressionConfig = {
   store: "US",
   repeat: 1,
   verbose: true,
+  reportDir: "./reports",
+  help: false,
+  listCases: false,
 };
 
 export interface CaseDefinition {
