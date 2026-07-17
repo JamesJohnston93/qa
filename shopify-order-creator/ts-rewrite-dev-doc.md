@@ -1,8 +1,26 @@
 # TypeScript Rewrite — Dev Doc
 
-**Status:** Ready to build
+**Status:** Scaffold landed — clients/verification build-out in progress
 **Owner:** JJ
-**Relates to:** TAA-3 (regression baseline), Scope of Work phase 1
+**Relates to:** TAA-13 (this work), TAA-3 (regression baseline), Scope of Work phase 1
+
+## Current state (Jul 17, post-scaffold — commits 9279f00 / 435fe42)
+
+Lives at `shopify-order-creator/ts/` with a repo-root wrapper `run-regression.sh`.
+
+**Done:** runnable CLI (`src/cli.ts`, tsc + node --test toolchain), all six baseline cases defined declaratively (`src/cases/baselineCases.ts`), real Shopify client with `order { id name }` capture, report output to `ts/reports/`, offline test harness for inventory assertions.
+
+**Not yet real — do not mistake the dry-run report for a staging run:**
+
+- `clients/dynamo.ts` is a stub (`getInventory` → `[]`, `setInventory` no-op) — needs AWS SDK v3, SSO profile, strict-only failures, `zeroEverywhere` via SKU-PK query
+- `clients/newstore.ts` is a stub (hardcoded IDs) — needs OAuth2 cache + retry
+- readers return placeholder data (financial status hardcoded `"PAID"`)
+- no polling anywhere — every verification is synchronous, which cannot work against the async pipeline
+- `--repeat` flag accepted but ignored; no variance diff
+- refund/cleanup stages for undie cases not wired
+- no schema guard — port the Python `TABLE_SCHEMAS` + `UNCONFIRMED` pattern so the readers refuse to run against guessed schemas
+
+Full task state: [TAA-13](https://universalstore.atlassian.net/browse/TAA-13). The Python `regression/` package remains the working reference for every unimplemented piece (polling.py, dynamo_reader.py, verify/*, report.py).
 
 ## Order of operations (agreed Jul 17)
 
