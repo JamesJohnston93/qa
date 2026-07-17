@@ -1,0 +1,97 @@
+{
+  "store": "US",
+  "timestamp": "20260717T134211Z",
+  "repeat": 1,
+  "passed": false,
+  "repeatConsistent": true,
+  "variance": {},
+  "runs": [
+    {
+      "store": "US",
+      "cases": [
+        {
+          "case": "undeliverable",
+          "store": "US",
+          "description": "Zero stock everywhere -> UNDELIVERABLE, Shopify refund, rows removed from both AWS tables",
+          "passed": true,
+          "orderId": "gid://shopify/Order/7772309487889",
+          "orderName": "#9734",
+          "stages": [
+            {
+              "name": "seed_inventory",
+              "elapsed": 4.7
+            },
+            {
+              "name": "create_order",
+              "elapsed": 10
+            },
+            {
+              "name": "shopify_readback",
+              "elapsed": 0.3
+            },
+            {
+              "name": "orders_table",
+              "elapsed": 25.7
+            },
+            {
+              "name": "allocation",
+              "elapsed": 30.3
+            },
+            {
+              "name": "refund",
+              "elapsed": 16.6
+            },
+            {
+              "name": "cleanup",
+              "elapsed": 50.6
+            },
+            {
+              "name": "inventory",
+              "elapsed": 0.1
+            }
+          ],
+          "error": null
+        },
+        {
+          "case": "partial_undeliverable",
+          "store": "US",
+          "description": "One SKU stocked, one zero everywhere -> mixed: allocated shipment + refunded undeliverable",
+          "passed": false,
+          "orderId": "gid://shopify/Order/7772313190673",
+          "orderName": "#9735",
+          "stages": [
+            {
+              "name": "seed_inventory",
+              "elapsed": 6.2
+            },
+            {
+              "name": "create_order",
+              "elapsed": 8.8
+            },
+            {
+              "name": "shopify_readback",
+              "elapsed": 0.4
+            },
+            {
+              "name": "orders_table",
+              "elapsed": 15.7
+            },
+            {
+              "name": "allocation",
+              "elapsed": 30.3
+            }
+          ],
+          "error": {
+            "check": "shopify.refund",
+            "expected": {
+              "32357875": 1
+            },
+            "actual": {},
+            "detail": "order #9735; 0 refund(s) present"
+          }
+        }
+      ],
+      "passed": false
+    }
+  ]
+}

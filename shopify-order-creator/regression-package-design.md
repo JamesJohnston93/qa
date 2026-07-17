@@ -74,7 +74,7 @@ Run per store (US and PS) unless noted. Each case seeds its own inventory state 
 | 2 | Multi (3× same SKU) | All stock at one location | 1 shipment, 3 ITEM# rows, correct units (Shopify merges dupes; Dynamo/NS don't — assert accordingly) |
 | 3 | Unique (3 different SKUs) | All SKUs at one store | 1 combined shipment |
 | 4 | Split shipment | Each SKU stocked at a different store only | One shipment per store, locations correct |
-| 5 | Undeliverable | Zero stock everywhere | Item marked UNDELIVERABLE, Shopify refund issued, rows removed from both AWS tables |
+| 5 | Undeliverable | Zero stock everywhere | Item marked UNDELIVERABLE, Shopify refund issued, item rows cleaned up in both AWS tables (shipments: status → `REMOVED`, not deleted — live finding Jul 17) |
 | 6 | Partial undeliverable | One SKU stocked, one zero | Mixed: allocated shipment + refunded undie |
 | 7 | NS SFS injection | Standard top-up | Order lands in NewStore, inventory correct |
 | 8 | NS OTC injection | Standard top-up | Preconfirmed/fulfilled order, no shipping |
@@ -87,7 +87,7 @@ Every case verifies, in order, with polling between stages:
 2. **AWS orders:** order appears in `staging-orders-v2`, items match the Shopify order, `origin_index` resolves.
 3. **AWS shipments:** one `ITEM#` row per unit in `staging-shipments`; each allocated to the expected store or marked `UNDELIVERABLE`.
 4. **Inventory:** `staging-inventory-v2` decremented by exactly the ordered quantity at exactly the allocated store(s) — no other rows touched.
-5. **Refund path (undie cases):** Shopify refund matches item value; rows removed from both AWS tables.
+5. **Refund path (undie cases):** Shopify refund matches item value; item rows cleaned up in both AWS tables. *Live finding (Jul 17, orders #9706/#9707): shipments rows are not deleted — status flips to `REMOVED`. Assert status, not absence.*
 
 ## Reporting
 

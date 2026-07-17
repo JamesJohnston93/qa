@@ -50,11 +50,22 @@ def assert_allocation(summary: dict, expected_allocation: dict[str, str], order_
 
 
 def assert_items_removed(shipment_items: list[dict], removed_skus: list[str], order_name: str):
-    """After undeliverable cleanup, the refunded SKUs have no ITEM# rows left."""
-    remaining = sorted({i["sku"] for i in shipment_items if i["sku"] in removed_skus})
+    """
+    After undeliverable cleanup, the refunded SKUs' ITEM# rows are removed.
+
+    LIVE FINDING (Jul 17, TS runs #9706/#9707): staging-shipments rows are
+    never physically deleted — cleanup flips the row status to "REMOVED".
+    Accept either absence or status == "REMOVED". (TS harness has the same
+    fix; keep both in sync.)
+    """
+    remaining = sorted({
+        i["sku"] for i in shipment_items
+        if i["sku"] in removed_skus and str(i.get("status", "")).upper() != "REMOVED"
+    })
     if remaining:
         raise VerificationError(
-            "shipments.cleanup", f"no rows for {sorted(removed_skus)}",
-            f"rows still present for {remaining}",
+            "shipments.cleanup",
+            f"rows absent or status REMOVED for {sorted(removed_skus)}",
+            f"active rows still present for {remaining}",
             detail=f"order {order_name}",
         )

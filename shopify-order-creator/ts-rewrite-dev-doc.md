@@ -1,26 +1,35 @@
 # TypeScript Rewrite — Dev Doc
 
-**Status:** Scaffold landed — clients/verification build-out in progress
+**Status:** Live on staging — 6/6 cases implemented, first full run 4/6 green, cleanup fix landed
 **Owner:** JJ
 **Relates to:** TAA-13 (this work), TAA-3 (regression baseline), Scope of Work phase 1
 
-## Current state (Jul 17, post-scaffold — commits 9279f00 / 435fe42)
+## Current state (Jul 17, post-live-runs — through commit d7869a7)
 
-Lives at `shopify-order-creator/ts/` with a repo-root wrapper `run-regression.sh`.
+TAA-13 steps 1–7 are all committed: polling ported, real Dynamo client (SDK v3, SSO,
+strict-only), real Shopify + Dynamo readers with **confirmed schemas** (correlation via
+`origin_index` GSI; allocated stores are plain store numbers), full stage chain wired,
+`--repeat` variance diff (stable signature excluding volatile fields), 38 offline tests.
 
-**Done:** runnable CLI (`src/cli.ts`, tsc + node --test toolchain), all six baseline cases defined declaratively (`src/cases/baselineCases.ts`), real Shopify client with `order { id name }` capture, report output to `ts/reports/`, offline test harness for inventory assertions.
+**Live staging results (US):**
 
-**Not yet real — do not mistake the dry-run report for a staging run:**
+- Solo `single` run: **PASS** (order #9701).
+- Full 6-case run (orders #9702–#9707): 4/6 pass. `undeliverable` + `partial_undeliverable` failed at `shipments.cleanup`.
+- **Root cause found and fixed:** the cleanup assertion expected ITEM# rows to be *deleted*; staging actually flips row status to `REMOVED` and never deletes. Assertion now checks status (commit 07fa507). Design doc + Python reference corrected to match.
+- Second fix from live runs: orders now use dedicated QA-automation customer identities (real company email domains), not Jared's staff account.
 
-- `clients/dynamo.ts` is a stub (`getInventory` → `[]`, `setInventory` no-op) — needs AWS SDK v3, SSO profile, strict-only failures, `zeroEverywhere` via SKU-PK query
-- `clients/newstore.ts` is a stub (hardcoded IDs) — needs OAuth2 cache + retry
-- readers return placeholder data (financial status hardcoded `"PAID"`)
-- no polling anywhere — every verification is synchronous, which cannot work against the async pipeline
-- `--repeat` flag accepted but ignored; no variance diff
-- refund/cleanup stages for undie cases not wired
-- no schema guard — port the Python `TABLE_SCHEMAS` + `UNCONFIRMED` pattern so the readers refuse to run against guessed schemas
+**Recorded stage latencies (for PollWindows tuning):** orders_table ~10–21s,
+allocation ~5–35s, refund ~17s, inventory ~0–56s. Current windows are generous; fine
+for now, tighten after more runs.
 
-Full task state: [TAA-13](https://universalstore.atlassian.net/browse/TAA-13). The Python `regression/` package remains the working reference for every unimplemented piece (polling.py, dynamo_reader.py, verify/*, report.py).
+**Remaining to close TAA-13:**
+
+- [ ] Re-run full set post-cleanup-fix; then `--repeat 3` (zero variance required)
+- [ ] Run the set against PS
+- [ ] NewStore client still stubbed — confirm read-back endpoint, wire cases 7–8 (or explicitly move NS coverage to a follow-up ticket)
+- [ ] Parity sign-off → retire Python package
+
+Full task state: [TAA-13](https://universalstore.atlassian.net/browse/TAA-13).
 
 ## Order of operations (agreed Jul 17)
 

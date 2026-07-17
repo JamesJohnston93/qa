@@ -1,0 +1,56 @@
+{
+  "store": "US",
+  "timestamp": "20260717T120606Z",
+  "repeat": 1,
+  "passed": false,
+  "repeatConsistent": true,
+  "variance": {},
+  "runs": [
+    {
+      "store": "US",
+      "cases": [
+        {
+          "case": "undeliverable",
+          "store": "US",
+          "description": "Zero stock everywhere -> UNDELIVERABLE, Shopify refund, rows removed from both AWS tables",
+          "passed": false,
+          "orderId": "",
+          "orderName": "",
+          "stages": [
+            {
+              "name": "seed_inventory",
+              "elapsed": 5
+            }
+          ],
+          "error": {
+            "check": "unexpected_error",
+            "expected": "",
+            "actual": "Error: draftOrderCalculate failed: [{\"field\":[\"email\"],\"message\":\"Email contains an invalid domain name\"}]",
+            "detail": "Error: draftOrderCalculate failed: [{\"field\":[\"email\"],\"message\":\"Email contains an invalid domain name\"}]\n    at ShopifyClient.fetchShippingRateHandle (/Users/james.johnston/Documents/GitHub/qa/shopify-order-creator/ts/dist/clients/shopify.js:91:19)\n    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)\n    at async ShopifyClient.createDraftOrder (/Users/james.johnston/Documents/GitHub/qa/shopify-order-creator/ts/dist/clients/shopify.js:40:36)\n    at async placeOrder (/Users/james.johnston/Documents/GitHub/qa/shopify-order-creator/ts/dist/flows/orderFlow.js:36:20)"
+          }
+        },
+        {
+          "case": "partial_undeliverable",
+          "store": "US",
+          "description": "One SKU stocked, one zero everywhere -> mixed: allocated shipment + refunded undeliverable",
+          "passed": false,
+          "orderId": "",
+          "orderName": "",
+          "stages": [
+            {
+              "name": "seed_inventory",
+              "elapsed": 6.8
+            }
+          ],
+          "error": {
+            "check": "unexpected_error",
+            "expected": "",
+            "actual": "Error: draftOrderCalculate failed: [{\"field\":[\"email\"],\"message\":\"Email contains an invalid domain name\"}]",
+            "detail": "Error: draftOrderCalculate failed: [{\"field\":[\"email\"],\"message\":\"Email contains an invalid domain name\"}]\n    at ShopifyClient.fetchShippingRateHandle (/Users/james.johnston/Documents/GitHub/qa/shopify-order-creator/ts/dist/clients/shopify.js:91:19)\n    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)\n    at async ShopifyClient.createDraftOrder (/Users/james.johnston/Documents/GitHub/qa/shopify-order-creator/ts/dist/clients/shopify.js:40:36)\n    at async placeOrder (/Users/james.johnston/Documents/GitHub/qa/shopify-order-creator/ts/dist/flows/orderFlow.js:36:20)"
+          }
+        }
+      ],
+      "passed": false
+    }
+  ]
+}
