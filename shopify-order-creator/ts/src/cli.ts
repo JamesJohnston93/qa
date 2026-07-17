@@ -1,7 +1,7 @@
 import { run } from "./runner";
 import { writeReport } from "./report";
 import { BASELINE_CASES } from "./cases/baselineCases";
-import { DEFAULT_CONFIG, type RegressionConfig, type Store } from "./config";
+import { defaultConfig, type RegressionConfig, type Store } from "./config";
 
 export function printHelp(): void {
   console.log(`Usage: node dist/index.js [options]
@@ -24,7 +24,7 @@ export function printCases(): void {
 }
 
 export function parseArgs(argv: string[]): RegressionConfig {
-  const config: RegressionConfig = { ...DEFAULT_CONFIG };
+  const config: RegressionConfig = defaultConfig();
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
     if (argument === "--store" && argv[index + 1]) {

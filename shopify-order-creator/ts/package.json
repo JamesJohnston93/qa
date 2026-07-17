@@ -15,5 +15,10 @@
   "devDependencies": {
     "@types/node": "^24.0.0",
     "typescript": "^5.8.3"
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.1089.0",
+    "@aws-sdk/credential-providers": "^3.1089.0",
+    "@aws-sdk/lib-dynamodb": "^3.1089.0"
   }
 }

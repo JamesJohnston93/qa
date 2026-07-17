@@ -27,7 +27,7 @@ function printCases() {
     }
 }
 function parseArgs(argv) {
-    const config = { ...config_1.DEFAULT_CONFIG };
+    const config = (0, config_1.defaultConfig)();
     for (let index = 0; index < argv.length; index += 1) {
         const argument = argv[index];
         if (argument === "--store" && argv[index + 1]) {

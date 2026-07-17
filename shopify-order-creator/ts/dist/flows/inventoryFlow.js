@@ -1,13 +1,20 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.seedInventoryForCase = seedInventoryForCase;
-exports.zeroInventoryForCase = zeroInventoryForCase;
-async function seedInventoryForCase(dynamo, sku, store, quantity) {
-    await dynamo.setInventory(sku, store, quantity);
-}
-async function zeroInventoryForCase(dynamo, sku) {
-    const locations = await dynamo.getInventory(sku);
-    for (const location of locations) {
-        await dynamo.setInventory(sku, location.store, 0);
+exports.prepareInventoryForCase = prepareInventoryForCase;
+exports.snapshotInventoryForCase = snapshotInventoryForCase;
+/**
+ * Deterministic inventory seeding for one case: zero every existing location
+ * for each ordered SKU, then apply the case's explicit seed plan. Mirrors
+ * regression/runner.py's stage 1 (seed_inventory / zero_everywhere) — never
+ * rely on ambient staging stock.
+ */
+async function prepareInventoryForCase(dynamo, skus, seedPlan) {
+    for (const sku of skus) {
+        await dynamo.zeroEverywhere(sku);
     }
+    await dynamo.seedInventory(seedPlan);
+    return dynamo.snapshotInventory(skus);
+}
+async function snapshotInventoryForCase(dynamo, skus) {
+    return dynamo.snapshotInventory(skus);
 }

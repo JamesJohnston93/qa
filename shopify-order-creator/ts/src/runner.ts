@@ -1,4 +1,4 @@
-import { DEFAULT_CONFIG, type RegressionConfig } from "./config";
+import { defaultConfig, type RegressionConfig } from "./config";
 import { BASELINE_CASES, type BaselineCase } from "./cases/baselineCases";
 import { placeOrder, prepareInventory, type OrderRecord } from "./flows/orderFlow";
 import { allocationSummary } from "./readers/dynamoReader";
@@ -23,7 +23,7 @@ export interface RunSummary {
 }
 
 export async function runCase(
-  config: RegressionConfig = DEFAULT_CONFIG,
+  config: RegressionConfig = defaultConfig(),
   caseDef: BaselineCase,
 ): Promise<CaseResult> {
   const stages: CaseResult["stages"] = [];
@@ -98,7 +98,7 @@ export async function runCase(
   };
 }
 
-export async function run(config: RegressionConfig = DEFAULT_CONFIG): Promise<RunSummary> {
+export async function run(config: RegressionConfig = defaultConfig()): Promise<RunSummary> {
   const results = [] as CaseResult[];
   const selectedCases = config.caseNames?.length
     ? BASELINE_CASES.filter((entry) => config.caseNames?.includes(entry.name))

@@ -2,7 +2,7 @@ import type { RegressionConfig } from "../config";
 import { ShopifyClient } from "../clients/shopify";
 import { DynamoClient } from "../clients/dynamo";
 import { NewStoreClient } from "../clients/newstore";
-import { seedInventoryForCase, zeroInventoryForCase } from "./inventoryFlow";
+import { prepareInventoryForCase } from "./inventoryFlow";
 
 export interface OrderRecord {
   orderId: string;
@@ -15,15 +15,9 @@ export async function prepareInventory(
   config: RegressionConfig,
   skuQuantities: Record<string, number>,
   seedPlan: Record<string, Record<string, number>> = {},
-): Promise<void> {
-  const dynamo = new DynamoClient();
-  for (const [sku] of Object.entries(skuQuantities)) {
-    await zeroInventoryForCase(dynamo, sku);
-    const locations = seedPlan[sku] ?? { "ATP#100": 99 };
-    for (const [store, quantity] of Object.entries(locations)) {
-      await seedInventoryForCase(dynamo, sku, store, quantity);
-    }
-  }
+): Promise<Record<string, Record<string, number>>> {
+  const dynamo = new DynamoClient(config);
+  return prepareInventoryForCase(dynamo, Object.keys(skuQuantities), seedPlan);
 }
 
 export async function placeOrder(

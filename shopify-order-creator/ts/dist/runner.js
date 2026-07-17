@@ -8,7 +8,7 @@ const orderFlow_1 = require("./flows/orderFlow");
 const dynamoReader_1 = require("./readers/dynamoReader");
 const assertions_1 = require("./verification/assertions");
 const verification_1 = require("./verification/verification");
-async function runCase(config = config_1.DEFAULT_CONFIG, caseDef) {
+async function runCase(config = (0, config_1.defaultConfig)(), caseDef) {
     const stages = [];
     const trackStage = async (name, action) => {
         const startedAt = Date.now();
@@ -66,7 +66,7 @@ async function runCase(config = config_1.DEFAULT_CONFIG, caseDef) {
         stages,
     };
 }
-async function run(config = config_1.DEFAULT_CONFIG) {
+async function run(config = (0, config_1.defaultConfig)()) {
     const results = [];
     const selectedCases = config.caseNames?.length
         ? baselineCases_1.BASELINE_CASES.filter((entry) => config.caseNames?.includes(entry.name))

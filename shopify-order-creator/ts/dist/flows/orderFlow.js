@@ -8,14 +8,8 @@ const dynamo_1 = require("../clients/dynamo");
 const newstore_1 = require("../clients/newstore");
 const inventoryFlow_1 = require("./inventoryFlow");
 async function prepareInventory(config, skuQuantities, seedPlan = {}) {
-    const dynamo = new dynamo_1.DynamoClient();
-    for (const [sku] of Object.entries(skuQuantities)) {
-        await (0, inventoryFlow_1.zeroInventoryForCase)(dynamo, sku);
-        const locations = seedPlan[sku] ?? { "ATP#100": 99 };
-        for (const [store, quantity] of Object.entries(locations)) {
-            await (0, inventoryFlow_1.seedInventoryForCase)(dynamo, sku, store, quantity);
-        }
-    }
+    const dynamo = new dynamo_1.DynamoClient(config);
+    return (0, inventoryFlow_1.prepareInventoryForCase)(dynamo, Object.keys(skuQuantities), seedPlan);
 }
 async function placeOrder(config, skuQuantities) {
     const shopify = new shopify_1.ShopifyClient(config.store);
