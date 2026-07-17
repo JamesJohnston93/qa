@@ -21,8 +21,8 @@ Options:
   --help, -h              Show this help text
 `);
 }
-function printCases() {
-    for (const entry of baselineCases_1.BASELINE_CASES) {
+function printCases(store = "US") {
+    for (const entry of Object.values((0, baselineCases_1.buildCases)(store))) {
         console.log(`- ${entry.name}: ${entry.description}`);
     }
 }
@@ -65,7 +65,7 @@ async function runCli(argv = process.argv.slice(2)) {
         return;
     }
     if (config.listCases) {
-        printCases();
+        printCases(config.store);
         return;
     }
     const summary = await (0, runner_1.run)(config);

@@ -1,10 +1,10 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { assertInventoryDecrements } = require('../dist/verification/verification.js');
+const { assertDecrements } = require('../dist/verify/inventory.js');
 
-test('assertInventoryDecrements accepts the expected decrement map', () => {
+test('assertDecrements accepts the expected decrement map', () => {
   assert.doesNotThrow(() => {
-    assertInventoryDecrements(
+    assertDecrements(
       { demo_sku: { 'ATP#100': 99 } },
       { demo_sku: { 'ATP#100': 98 } },
       { demo_sku: { 'ATP#100': 1 } },
@@ -13,9 +13,9 @@ test('assertInventoryDecrements accepts the expected decrement map', () => {
   });
 });
 
-test('assertInventoryDecrements rejects unexpected inventory change', () => {
+test('assertDecrements rejects unexpected inventory change', () => {
   assert.throws(() => {
-    assertInventoryDecrements(
+    assertDecrements(
       { demo_sku: { 'ATP#100': 99 } },
       { demo_sku: { 'ATP#100': 99 } },
       { demo_sku: { 'ATP#100': 1 } },

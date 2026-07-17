@@ -1,6 +1,6 @@
 import { run } from "./runner";
 import { writeReport } from "./report";
-import { BASELINE_CASES } from "./cases/baselineCases";
+import { buildCases } from "./cases/baselineCases";
 import { defaultConfig, type RegressionConfig, type Store } from "./config";
 
 export function printHelp(): void {
@@ -17,8 +17,8 @@ Options:
 `);
 }
 
-export function printCases(): void {
-  for (const entry of BASELINE_CASES) {
+export function printCases(store: Store = "US"): void {
+  for (const entry of Object.values(buildCases(store))) {
     console.log(`- ${entry.name}: ${entry.description}`);
   }
 }
@@ -57,7 +57,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
     return;
   }
   if (config.listCases) {
-    printCases();
+    printCases(config.store);
     return;
   }
   const summary = await run(config);

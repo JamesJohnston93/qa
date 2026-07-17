@@ -1,7 +1,19 @@
+/**
+ * Order lifecycle orchestration: inventory seeding and headless order
+ * creation that returns every identifier verification needs. Ports the
+ * relevant parts of regression/flows.py. Bypasses main.py entirely — no
+ * input(), no CLI globals.
+ *
+ * NewStore is intentionally not called here: cases 1-6 are Shopify-only
+ * (matching flows.create_shopify_order). NS SFS/OTC cases (7-8) are not yet
+ * wired into the runner — see cases/baselineCases.ts.
+ */
+
 import type { RegressionConfig } from "../config";
+import { customerFor } from "../config";
 import { ShopifyClient } from "../clients/shopify";
 import { DynamoClient } from "../clients/dynamo";
-import { NewStoreClient } from "../clients/newstore";
+import { variantsFor } from "../variants";
 import { prepareInventoryForCase } from "./inventoryFlow";
 
 export interface OrderRecord {
@@ -24,31 +36,25 @@ export async function placeOrder(
   config: RegressionConfig,
   skuQuantities: Record<string, number>,
 ): Promise<OrderRecord> {
+  const variants = variantsFor(config.store);
+  const unknown = Object.keys(skuQuantities).filter((sku) => !(sku in variants));
+  if (unknown.length > 0) {
+    throw new Error(`SKUs not in ${config.store} variant map: ${JSON.stringify(unknown)}. Known: ${Object.keys(variants)}`);
+  }
+
+  const lineItems = Object.entries(skuQuantities).map(([sku, quantity]) => ({
+    variantId: variants[sku],
+    quantity,
+  }));
+
+  const customer = customerFor(config);
   const shopify = new ShopifyClient(config.store);
-  const newstore = new NewStoreClient();
-  const lineItems = Object.entries(skuQuantities).map(([variantId, quantity]) => ({ variantId, quantity }));
-  const result = await shopify.createDraftOrder(
-    "customer-1",
-    "jared.davis@universalstore.com.au",
-    lineItems,
-    "Jared",
-    "Davis",
-  );
-  await newstore.createOrder({ store: config.store, skus: skuQuantities });
+  const result = await shopify.createDraftOrder(customer.id, customer.email, lineItems, customer.firstName, customer.lastName);
 
   return {
     orderId: result.orderId,
     orderName: result.orderName,
     createdAt: result.createdAt,
-    skus: skuQuantities,
+    skus: { ...skuQuantities },
   };
-}
-
-export async function createOrder(
-  config: RegressionConfig,
-  skuQuantities: Record<string, number>,
-  seedPlan: Record<string, Record<string, number>> = {},
-): Promise<OrderRecord> {
-  await prepareInventory(config, skuQuantities, seedPlan);
-  return placeOrder(config, skuQuantities);
 }

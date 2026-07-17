@@ -1,63 +1,95 @@
 "use strict";
+/**
+ * Shopify order placement via the Admin GraphQL API. Ports the relevant
+ * parts of orders_processor.py's draft-order lifecycle (create -> calculate
+ * shipping -> complete) for Universal Store (US) / Perfect Stranger (PS)
+ * staging.
+ *
+ * Strict by design: every mutation result is checked for userErrors and for
+ * the expected node in the response. Missing data raises immediately —
+ * there is no synthetic/fallback ID path. A regression harness that silently
+ * invented an order id on a malformed response would make every downstream
+ * assertion meaningless.
+ */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ShopifyClient = void 0;
-const crypto_1 = require("crypto");
 class ShopifyClient {
     store;
     constructor(store) {
         this.store = store;
     }
-    async createDraftOrder(customerId, customerEmail, lineItems, firstName, lastName) {
-        const payload = {
-            query: this.getCreateDraftOrderQuery(),
-            variables: {
-                input: {
-                    customerId,
-                    email: customerEmail,
-                    note: "Jared order for QA",
-                    taxExempt: false,
-                    billingAddress: this.getMockAddress(firstName, lastName),
-                    shippingAddress: this.getMockAddress(firstName, lastName),
-                    lineItems,
-                    shippingLine: {
-                        shippingRateHandle: this.getShippingHandle(),
-                    },
-                },
-            },
-        };
+    async execute(query, variables) {
         const response = await fetch(this.getEndpoint(), {
             method: "POST",
             headers: this.getHeaders(),
-            body: JSON.stringify(payload),
+            body: JSON.stringify({ query, variables }),
         });
         if (!response.ok) {
-            throw new Error(`Shopify draft order request failed: ${response.status} ${response.statusText}`);
+            throw new Error(`Shopify request failed: ${response.status} ${response.statusText}`);
         }
-        const json = (await response.json());
-        const draftOrderId = json?.data?.draftOrderCreate?.draftOrder?.id ?? `gid://shopify/DraftOrder/${(0, crypto_1.createHash)("sha1").update(JSON.stringify(payload)).digest("hex")}`;
-        const completed = await this.completeDraftOrder(draftOrderId);
-        return completed;
+        return (await response.json());
+    }
+    async createDraftOrder(customerId, customerEmail, lineItems, firstName, lastName) {
+        const shippingRateHandle = await this.fetchShippingRateHandle(customerId, customerEmail, lineItems);
+        const result = await this.execute(DRAFT_ORDER_CREATE, {
+            input: {
+                customerId,
+                note: "Jared order for QA",
+                email: customerEmail,
+                taxExempt: false,
+                tags: ["foo", "bar"],
+                billingAddress: mockAddress(firstName, lastName),
+                shippingAddress: mockAddress(firstName, lastName),
+                lineItems,
+                shippingLine: { shippingRateHandle },
+            },
+        });
+        const errors = result.data?.draftOrderCreate.userErrors ?? [];
+        if (errors.length > 0) {
+            throw new Error(`draftOrderCreate failed: ${JSON.stringify(errors)}`);
+        }
+        const draftOrderId = result.data?.draftOrderCreate.draftOrder?.id;
+        if (!draftOrderId) {
+            throw new Error(`draftOrderCreate returned no draft order: ${JSON.stringify(result)}`);
+        }
+        return this.completeDraftOrder(draftOrderId);
     }
     async completeDraftOrder(draftOrderId) {
-        const payload = {
-            query: this.getCompleteDraftOrderQuery(),
-            variables: { id: draftOrderId },
-        };
-        const response = await fetch(this.getEndpoint(), {
-            method: "POST",
-            headers: this.getHeaders(),
-            body: JSON.stringify(payload),
-        });
-        if (!response.ok) {
-            throw new Error(`Shopify complete draft order request failed: ${response.status} ${response.statusText}`);
+        const result = await this.execute(DRAFT_ORDER_COMPLETE, { id: draftOrderId });
+        const errors = result.data?.draftOrderComplete.userErrors ?? [];
+        if (errors.length > 0) {
+            throw new Error(`draftOrderComplete failed: ${JSON.stringify(errors)}`);
         }
-        const json = (await response.json());
-        const order = json?.data?.draftOrderComplete?.draftOrder?.order ?? {};
+        const draft = result.data?.draftOrderComplete.draftOrder;
+        const order = draft?.order;
+        if (!order?.id) {
+            throw new Error(`draftOrderComplete returned no order for draft ${draftOrderId}: ${JSON.stringify(result)}`);
+        }
         return {
-            orderId: order.id ?? `gid://shopify/Order/${Date.now()}`,
-            orderName: order.name ?? `#${Math.floor(Math.random() * 100000)}`,
-            createdAt: json?.data?.draftOrderComplete?.draftOrder?.createdAt ?? new Date().toISOString(),
+            orderId: order.id,
+            orderName: order.name ?? "",
+            createdAt: draft?.createdAt ?? "",
         };
+    }
+    /** Mirrors orders_processor.fetch_shipping_rates: calculates real rates and returns the first handle. */
+    async fetchShippingRateHandle(customerId, customerEmail, lineItems) {
+        const result = await this.execute(DRAFT_ORDER_CALCULATE, {
+            input: {
+                customerId,
+                email: customerEmail,
+                shippingAddress: mockAddress("Jared", "Davis"),
+                lineItems,
+            },
+        });
+        const errors = result.data?.draftOrderCalculate.userErrors ?? [];
+        if (errors.length > 0) {
+            throw new Error(`draftOrderCalculate failed: ${JSON.stringify(errors)}`);
+        }
+        const rates = result.data?.draftOrderCalculate.calculatedDraftOrder?.availableShippingRates ?? [];
+        if (rates.length === 0) {
+            throw new Error("draftOrderCalculate returned no shipping rates for this order");
+        }
+        return rates[0].handle;
     }
     getEndpoint() {
         return this.store === "US"
@@ -65,9 +97,7 @@ class ShopifyClient {
             : "https://perfect-stranger-staging.myshopify.com/admin/api/2025-10/graphql.json";
     }
     getHeaders() {
-        const token = this.store === "US"
-            ? process.env.US_ACCESS_TOKEN
-            : process.env.PS_ACCESS_TOKEN;
+        const token = this.store === "US" ? process.env.US_ACCESS_TOKEN : process.env.PS_ACCESS_TOKEN;
         if (!token) {
             throw new Error(`Missing ${this.store === "US" ? "US_ACCESS_TOKEN" : "PS_ACCESS_TOKEN"} environment variable`);
         }
@@ -76,43 +106,53 @@ class ShopifyClient {
             "X-Shopify-Access-Token": token,
         };
     }
-    getCreateDraftOrderQuery() {
-        return `
-      mutation draftOrderCreate($input: DraftOrderInput!) {
-        draftOrderCreate(input: $input) {
-          draftOrder { id }
-          userErrors { field message }
-        }
-      }
-    `;
-    }
-    getCompleteDraftOrderQuery() {
-        return `
-      mutation draftOrderComplete($id: ID!) {
-        draftOrderComplete(id: $id) {
-          draftOrder {
-            createdAt
-            order { id name }
-          }
-          userErrors { field message }
-        }
-      }
-    `;
-    }
-    getShippingHandle() {
-        return "default-rate-handle";
-    }
-    getMockAddress(firstName, lastName) {
-        return {
-            firstName,
-            lastName,
-            address1: "42 William Farrior Place",
-            address2: null,
-            city: "Brisbane",
-            province: "QLD",
-            zip: "4000",
-            country: "AU",
-        };
-    }
 }
 exports.ShopifyClient = ShopifyClient;
+function mockAddress(firstName, lastName) {
+    return {
+        firstName,
+        lastName,
+        address1: "42 William Farrior Place",
+        address2: null,
+        city: "Eagle Farm",
+        zip: "4009",
+        province: "Queensland",
+        provinceCode: "QLD",
+        country: "Australia",
+        countryCode: "AU",
+        phone: "0414 697 063",
+        company: null,
+    };
+}
+const DRAFT_ORDER_CALCULATE = `
+  mutation draftOrderCalculate($input: DraftOrderInput!) {
+    draftOrderCalculate(input: $input) {
+      calculatedDraftOrder {
+        availableShippingRates {
+          handle
+          title
+        }
+      }
+      userErrors { field message }
+    }
+  }
+`;
+const DRAFT_ORDER_CREATE = `
+  mutation draftOrderCreate($input: DraftOrderInput!) {
+    draftOrderCreate(input: $input) {
+      draftOrder { id }
+      userErrors { field message }
+    }
+  }
+`;
+const DRAFT_ORDER_COMPLETE = `
+  mutation draftOrderComplete($id: ID!) {
+    draftOrderComplete(id: $id) {
+      draftOrder {
+        createdAt
+        order { id name }
+      }
+      userErrors { field message }
+    }
+  }
+`;
