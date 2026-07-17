@@ -47,12 +47,12 @@ export interface Customer {
 
 export const BASELINE_CUSTOMERS: Record<Store, Customer> = {
   US: {
-    email: "QAauto@universal.com",
+    email: "QAauto@universalstore.com.au",
     firstName: "JJQA",
     lastName: "AutoUS",
   },
   PS: {
-    email: "QAauto@perfectstranger.com",
+    email: "QAauto@perfectstranger.com.au",
     firstName: "JJQA",
     lastName: "AutoPS",
   },

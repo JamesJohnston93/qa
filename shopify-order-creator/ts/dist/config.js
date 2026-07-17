@@ -31,12 +31,12 @@ exports.ALL_LOCATIONS = [exports.WEB_DC, exports.STORE_99, exports.CHERMSIDE_US,
 exports.AGGREGATE_LOCATIONS = ["ATP#INTERNATIONAL", "ATP#STUDIO", "ATP#ALL"];
 exports.BASELINE_CUSTOMERS = {
     US: {
-        email: "QAauto@universal.com",
+        email: "QAauto@universalstore.com.au",
         firstName: "JJQA",
         lastName: "AutoUS",
     },
     PS: {
-        email: "QAauto@perfectstranger.com",
+        email: "QAauto@perfectstranger.com.au",
         firstName: "JJQA",
         lastName: "AutoPS",
     },
