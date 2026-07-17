@@ -15,15 +15,16 @@ Build a headless `/regression` package: deterministic baseline proving order →
 
 **Schema confirmed (2026-07-17)** by placing a live US order (#9699) and probing `staging-orders-v2`/`staging-shipments` directly — the real shape differs from the original guess in three ways, now documented at the top of `readers/dynamoReader.ts`: (1) the table PK is an opaque internal order UUID, not the Shopify order id/name; (2) `staging-orders-v2` has an `origin_index` GSI keyed on `origin = "{STORE}#SHOPIFY_ECOM#{shopifyOrderIdTail}"` — the real correlation key (`staging-shipments` has no such GSI; its PK is the *same* UUID as the matching `staging-orders-v2` row, so the PK is resolved via the orders table first); (3) both tables are one-row-per-unit, and allocation lives on a sibling `SHIPMENT#<id>` row's `allocatedStore` attribute (plain store number, e.g. `"100"`), not on the `ITEM#` row itself.
 
-**Stubs — not real yet:** `clients/newstore.ts` (hardcoded IDs — NS cases 7–8 still unwired), `--repeat` ignored (no variance diff yet), refund/cleanup stage wiring not yet exercised live. The `ts/reports/` sample came from a dry run, NOT staging.
+`src/runner.ts` now wires the full stage chain matching `regression/runner.py`: seed_inventory → create_order → shopify_readback → orders_table → allocation → (refund → cleanup) or no_refund → inventory, every stage polled via `pollVerify` (pollUntil + a verify function that retries until it stops throwing `VerificationError`, then surfaces the detailed error on timeout instead of a bare timeout). **Stubs — not real yet:** `clients/newstore.ts` (hardcoded IDs — NS cases 7–8 still unwired), `--repeat` ignored (no variance diff yet), and the whole chain is untested against live staging. The `ts/reports/` sample came from a dry run, NOT staging.
 
 **Next priorities (in order — everything else is blocked on 1–2):**
 
 1. ~~Port `regression/polling.py` → TS~~ — done (`src/polling.ts`).
 2. ~~Real `clients/dynamo.ts` (inventory ops)~~ — done.
 3. ~~Real readers + schema confirmation~~ — done (`readers/shopifyReader.ts`, `readers/dynamoReader.ts`, `verify/*.ts`).
-4. Wire the full stage chain in `runner.ts` (seed → create → shopify_readback → orders_table → allocation → refund/cleanup or no_refund → inventory), then `--repeat` variance diff (port `report.py` stable_signature/diff_repeats).
-5. NS cases 7–8: confirm NewStore read-back endpoint first (see `regression/readers/newstore_reader.py` TODO).
+4. ~~Wire the full stage chain in `runner.ts`~~ — done.
+5. `--repeat` variance diff (port `report.py` stable_signature/diff_repeats), then extend offline tests (allocation/refund/dupe-merge/variance logic), then the first live run against staging.
+6. NS cases 7–8: confirm NewStore read-back endpoint first (see `regression/readers/newstore_reader.py` TODO).
 
 Track progress on [TAA-13](https://universalstore.atlassian.net/browse/TAA-13) — its checklist mirrors this list; tick items as they land.
 
