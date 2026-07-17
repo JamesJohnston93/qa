@@ -1,7 +1,7 @@
-import { run } from "./runner";
-import { writeReport } from "./report";
+import { run, type RunSummary } from "./runner";
+import { writeReports } from "./report";
 import { buildCases } from "./cases/baselineCases";
-import { defaultConfig, type RegressionConfig, type Store } from "./config";
+import { defaultConfig, validateConfig, type RegressionConfig, type Store } from "./config";
 
 export function printHelp(): void {
   console.log(`Usage: node dist/index.js [options]
@@ -50,6 +50,10 @@ export function parseArgs(argv: string[]): RegressionConfig {
   return config;
 }
 
+/**
+ * Exit codes (matching python -m regression's contract): 0 = all cases
+ * passed and repeats consistent; 1 = any failure or repeat variance.
+ */
 export async function runCli(argv: string[] = process.argv.slice(2)): Promise<void> {
   const config = parseArgs(argv);
   if (config.help) {
@@ -60,9 +64,19 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
     printCases(config.store);
     return;
   }
-  const summary = await run(config);
-  const reportPaths = writeReport(summary, config.reportDir);
-  console.log(JSON.stringify(summary, null, 2));
-  console.log(`Report markdown: ${reportPaths.markdown}`);
-  console.log(`Report json: ${reportPaths.json}`);
+  validateConfig(config);
+
+  const runs: RunSummary[] = [];
+  for (let i = 0; i < config.repeat; i += 1) {
+    if (config.verbose && config.repeat > 1) {
+      console.log(`\n######## repeat ${i + 1}/${config.repeat} ########`);
+    }
+    runs.push(await run(config));
+  }
+
+  const reportPaths = writeReports(config, runs);
+  console.log(`\nReport: ${reportPaths.markdown}`);
+  console.log(`JSON:   ${reportPaths.json}`);
+  console.log(reportPaths.passed ? "PASS" : "FAIL");
+  process.exitCode = reportPaths.passed ? 0 : 1;
 }

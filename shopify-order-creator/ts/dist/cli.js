@@ -58,6 +58,10 @@ function parseArgs(argv) {
     }
     return config;
 }
+/**
+ * Exit codes (matching python -m regression's contract): 0 = all cases
+ * passed and repeats consistent; 1 = any failure or repeat variance.
+ */
 async function runCli(argv = process.argv.slice(2)) {
     const config = parseArgs(argv);
     if (config.help) {
@@ -68,9 +72,17 @@ async function runCli(argv = process.argv.slice(2)) {
         printCases(config.store);
         return;
     }
-    const summary = await (0, runner_1.run)(config);
-    const reportPaths = (0, report_1.writeReport)(summary, config.reportDir);
-    console.log(JSON.stringify(summary, null, 2));
-    console.log(`Report markdown: ${reportPaths.markdown}`);
-    console.log(`Report json: ${reportPaths.json}`);
+    (0, config_1.validateConfig)(config);
+    const runs = [];
+    for (let i = 0; i < config.repeat; i += 1) {
+        if (config.verbose && config.repeat > 1) {
+            console.log(`\n######## repeat ${i + 1}/${config.repeat} ########`);
+        }
+        runs.push(await (0, runner_1.run)(config));
+    }
+    const reportPaths = (0, report_1.writeReports)(config, runs);
+    console.log(`\nReport: ${reportPaths.markdown}`);
+    console.log(`JSON:   ${reportPaths.json}`);
+    console.log(reportPaths.passed ? "PASS" : "FAIL");
+    process.exitCode = reportPaths.passed ? 0 : 1;
 }

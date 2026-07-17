@@ -1,4 +1,14 @@
 "use strict";
+/**
+ * Run reports: JSON artifact (diffable between runs) + markdown summary.
+ * Ports regression/report.py.
+ *
+ * The JSON is the consistency signal: --repeat N runs the identical set N
+ * times and diffs the *stable signatures* of each run (pass/fail + failing
+ * check per case, excluding volatile fields like order ids and timings). Any
+ * variance between identical runs is flagged - that's the race-condition
+ * detector.
+ */
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
     var desc = Object.getOwnPropertyDescriptor(m, k);
@@ -33,30 +43,106 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.writeReport = writeReport;
+exports.stableSignature = stableSignature;
+exports.diffRepeats = diffRepeats;
+exports.writeReports = writeReports;
 const fs = __importStar(require("fs"));
 const path = __importStar(require("path"));
-function writeReport(summary, reportDir = "./reports") {
-    const markdown = [
-        "# QA TypeScript Regression Run",
-        "",
-        `Store: ${summary.store}`,
-        "",
-        ...summary.cases.map((entry) => {
-            const stageSummary = entry.stages.map((stage) => `${stage.name}=${stage.elapsed.toFixed(1)}s`).join(", ");
-            return `- ${entry.case}: ${entry.passed ? "PASS" : "FAIL"} | order=${entry.orderId} | stages=${stageSummary}`;
-        }),
-        "",
-    ].join("\n");
-    const outDir = reportDir;
-    fs.mkdirSync(outDir, { recursive: true });
-    const markdownPath = path.join(outDir, "regression-report.md");
-    const jsonPath = path.join(outDir, "regression-report.json");
-    fs.writeFileSync(markdownPath, markdown);
-    fs.writeFileSync(jsonPath, JSON.stringify(summary, null, 2));
-    return {
-        markdown: markdownPath,
-        json: jsonPath,
-        passed: summary.passed,
+/** Deterministic view of a run: what should be identical across repeats. */
+function stableSignature(runResult) {
+    const signature = {};
+    for (const result of runResult.cases) {
+        signature[result.case] = {
+            passed: result.passed,
+            failedCheck: result.error?.check ?? null,
+        };
+    }
+    return signature;
+}
+function signaturesEqual(a, b) {
+    if (a === b) {
+        return true;
+    }
+    if (!a || !b) {
+        return false;
+    }
+    return a.passed === b.passed && a.failedCheck === b.failedCheck;
+}
+/**
+ * Compares stable signatures across repeated identical runs. Returns
+ * {consistent, variance: {case: [per-run signature, ...]}}.
+ */
+function diffRepeats(runs) {
+    const signatures = runs.map(stableSignature);
+    const variance = {};
+    for (const caseName of Object.keys(signatures[0] ?? {})) {
+        const seen = signatures.map((sig) => sig[caseName]);
+        if (seen.some((entry) => !signaturesEqual(entry, seen[0]))) {
+            variance[caseName] = seen;
+        }
+    }
+    return { consistent: Object.keys(variance).length === 0, variance };
+}
+/** Writes <stamp>.json and <stamp>.md under reportDir. Returns paths + verdict. */
+function writeReports(config, runs, outDir) {
+    const out = outDir ?? config.reportDir;
+    fs.mkdirSync(out, { recursive: true });
+    const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d+Z$/, "Z");
+    const base = path.join(out, `regression_${config.store}_${stamp}`);
+    const repeatDiff = runs.length > 1 ? diffRepeats(runs) : { consistent: true, variance: {} };
+    const allPassed = runs.every((r) => r.passed);
+    const verdict = allPassed && repeatDiff.consistent;
+    const payload = {
+        store: config.store,
+        timestamp: stamp,
+        repeat: runs.length,
+        passed: verdict,
+        repeatConsistent: repeatDiff.consistent,
+        variance: repeatDiff.variance,
+        runs,
     };
+    const jsonPath = `${base}.json`;
+    fs.writeFileSync(jsonPath, JSON.stringify(payload, null, 2));
+    const markdownPath = `${base}.md`;
+    fs.writeFileSync(markdownPath, renderMarkdown(payload));
+    return { json: jsonPath, markdown: markdownPath, passed: verdict };
+}
+function renderFailure(result) {
+    if (result.passed || !result.error) {
+        return "";
+    }
+    const e = result.error;
+    return `\`${e.check}\` expected ${JSON.stringify(e.expected)} got ${JSON.stringify(e.actual)} ${e.detail ?? ""}`.trim();
+}
+function renderMarkdown(payload) {
+    const lines = [
+        `# Regression run — ${payload.store} — ${payload.timestamp}`,
+        "",
+        `**Verdict: ${payload.passed ? "PASS" : "FAIL"}**` +
+            (payload.repeat > 1
+                ? ` · ${payload.repeat} repeats, ${payload.repeatConsistent ? "consistent" : "VARIANCE DETECTED"}`
+                : ""),
+        "",
+    ];
+    if (Object.keys(payload.variance).length > 0) {
+        lines.push("## ⚠ Repeat variance (race-condition signal)", "");
+        for (const [caseName, seen] of Object.entries(payload.variance)) {
+            lines.push(`- **${caseName}**: ` + seen.map((entry) => JSON.stringify(entry)).join(" | "));
+        }
+        lines.push("");
+    }
+    payload.runs.forEach((run, index) => {
+        if (payload.repeat > 1) {
+            lines.push(`## Run ${index + 1}`, "");
+        }
+        lines.push("| Case | Order | Result | Stage timings (s) | Failure |", "| --- | --- | --- | --- | --- |");
+        for (const result of run.cases) {
+            const timings = result.stages.map((s) => `${s.name}=${s.elapsed}`).join(", ");
+            const status = result.passed ? "✅ pass" : "❌ fail";
+            lines.push(`| ${result.case} | ${result.orderName || "—"} | ${status} | ${timings} | ${renderFailure(result)} |`);
+        }
+        lines.push("");
+    });
+    lines.push("---", "_Stage timings feed PollWindows tuning (config.ts). A stage passing near its timeout is a drift signal._");
+    return lines.join("\n");
 }
