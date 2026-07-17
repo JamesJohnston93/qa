@@ -32,6 +32,8 @@ Cases: single, multi, unique, split, undeliverable, partial-undeliverable (NewSt
 
 Live on staging (US): full six-case set runs end-to-end; first full run 4/6 with both failures root-caused and fixed (shipments cleanup flips status to `REMOVED` rather than deleting rows). Remaining for parity sign-off: post-fix re-run, `--repeat 3` with zero variance, PS store run, poll-window tuning, NewStore cases. See TAA-13 for the live checklist.
 
+Queued next ([TAA-14](https://universalstore.atlassian.net/browse/TAA-14)): run-time optimisation — batch seed writes, adaptive polling, live progress line, then SKU pool growth (≥12 per store) enabling parallel case execution. Target: full `--repeat 3` gate in ≤7 min (currently ~20). Pool growth also unblocks richer undeliverable/split permutations and future modifier cases.
+
 ## Run it
 
 Prereqs: `US_ACCESS_TOKEN` / `PS_ACCESS_TOKEN` env vars, `aws sso login --profile staging`.
