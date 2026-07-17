@@ -1,0 +1,58 @@
+# QA Order Tool — shopify-order-creator
+
+Interactive CLI + (in progress) regression package for placing test orders on Universal Store / Perfect Stranger **staging** and verifying omni-channel alignment across Shopify, AWS (DynamoDB), and NewStore.
+
+**Owner:** JJ (james.johnston@universalstore.com.au). CLI originally by Jared Davis.
+**Tracking:** Jira project TAA (current build ticket: TAA-3). Docs: Confluence QD space → "QA Automation Tool" page tree — see `regression-package-design.md` and `scope-of-work-reworked.md` in this folder.
+
+## Current mission (TAA-3, Phase 0)
+
+Build a headless `/regression` package: deterministic baseline proving order → allocation → shipments → inventory correctness across all three systems. "These always need to work and behave exactly the same way." Later: TypeScript rewrite uses this baseline as its parity spec. Read `regression-package-design.md` before writing regression code — it is the source of truth for architecture, case set, and assertions.
+
+## Stack & environment
+
+- **Staging only.** Shopify Admin GraphQL 2025-10: `universal-store-staging.myshopify.com` (US), `perfect-stranger-staging.myshopify.com` (PS).
+- **NewStore:** `universalstore-staging.p.newstore.net`, OAuth2 client-credentials via `id.p.newstore.net` (Keycloak). Order injection: `POST /v0/d/fulfill_order`.
+- **AWS:** region `ap-southeast-2`, boto3 named profile `staging` (`aws sso login --profile staging` when expired).
+- **Env vars (required at import):** `US_ACCESS_TOKEN`, `PS_ACCESS_TOKEN`, `NS_STAGING_CLIENT_ID`, `NS_STAGING_CLIENT_SECRET`. Optional: `AWS_REGION`, `AWS_PROFILE`, `NS_INVENTORY_STORE_KEY`.
+- Run CLI: `python main.py`. Python 3, deps in `requirements.txt` (pip).
+
+## DynamoDB tables (staging)
+
+- `staging-inventory-v2` — PK `sku` (str), SK `store` (str, format `ATP#<storeNo>`), attrs `quantity`, `updatedAt`, `updatedReason`. Known locations: `ATP#100` (web DC), `ATP#99`, `ATP#407` (Chermside / BRANCH_407 / US), `ATP#640` (BRANCH_640 / PS).
+- `staging-orders-v2` — order records + transactions (order-finalised, order-item-refunded).
+- `staging-shipments` — one `ITEM#` row per unit; allocated to a store or `UNDELIVERABLE`; items carry a rejected-stores array that excludes stores from allocation.
+
+## Allocation levers (determinism)
+
+Allocator reads `ATP#<store>` rows per SKU; store with all SKUs = single shipment; SKUs spread across stores = split; zero stock everywhere (or all in-stock stores in rejected-stores) = undeliverable → Shopify refund → rows removed from both AWS tables + inventory decrement at allocated stores. Never rely on ambient staging stock — seed inventory explicitly per test case, with SKUs isolated per case (concurrent async pipelines interfere otherwise).
+
+## File map
+
+| File | Role |
+| --- | --- |
+| `main.py` | CLI menus, customer pools, presets, Shopify order flow (`place_an_order`) — interactive, bypass for regression work |
+| `orders_processor.py` | Shopify GraphQL layer: draft→complete flow, customers, prices, `US_VARIANTS`/`PS_VARIANTS` SKU→GID maps |
+| `graphql_scripts.py` | GraphQL query/mutation strings |
+| `newstore_orders.py` | NS SFS/OTC payload builders + injection; `JD#########` external IDs via `order_counter.json` |
+| `newstore_client.py` | Retrying OAuth2 HTTP client (`staging_client` singleton) |
+| `aws_inventory.py` | `get_stock` / `set_stock` / `ensure_stock` (top-up to 99) / `split_stock` (qty 1 across 4 ATP locations) |
+| `receipt_service.py` | PDF receipt via NS Template Service, attached as order note (all failures non-fatal by design) |
+
+## Known gotchas (from full code review, Jul 2026)
+
+1. **Order IDs are discarded** — `complete_draft_order` returns None; `draftOrderComplete` GraphQL doesn't select `draftOrder { order { id name } }`. First fix for regression work.
+2. **Silent failures:** `ensure_stock`/`split_stock` swallow AWS errors and return `{}` (order proceeds anyway); `get_shopify_prices` silently skips unknown SKUs; NS price lookup falls back to $1.00. Regression code must treat all of these as hard failures (add `strict` mode; don't break CLI behaviour).
+3. **Import-time side effects:** `orders_processor` and `newstore_client` build clients at import (KeyError without env vars). Mutable module globals hold store/brand state — Shopify `STORE` and NewStore `BRAND` are separate toggles that can drift.
+4. **Shopify merges duplicate line items; DynamoDB/NewStore do not** — cross-system item-count assertions must account for this.
+5. `order_counter.json` isn't concurrency-safe. Receipt hardcodes shipping 10.0 vs 9.99 charged, and "Universal Store" name even for PS.
+6. Presets are built positionally from variant dicts — reordering the dicts silently changes preset contents.
+
+## Conventions for new work
+
+- Regression package lives in `regression/` per the design doc layout (runner / cases / flows / readers / verify / polling / report / config). Headless: no `input()`, no module-global state; explicit config object.
+- Entry point target: `python -m regression [--cases ...] [--store US|PS] [--repeat N]`, non-zero exit on any failure.
+- Every creation call returns identifiers; every assertion failure reports expected-vs-actual from each system.
+- `--repeat N` diffs JSON results between identical runs — variance is a flagged inconsistency (race-condition signal).
+- Don't modify CLI behaviour; extend modules additively (e.g. `strict=` kwargs, extra GraphQL selections).
+- Update the changelog in Confluence "QA Order CLI — Tool Documentation" when CLI-facing behaviour changes; track build progress on TAA-3.

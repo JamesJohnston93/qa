@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Secrets / local env
+.env
+.env.*
+
+# Runtime state & outputs
+shopify-order-creator/order_counter.json
+shopify-order-creator/receipts/
+*.pdf
+
+# Editors / OS
+.DS_Store
+.idea/
+.vscode/
