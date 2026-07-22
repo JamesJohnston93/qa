@@ -43,12 +43,12 @@ exports.BASELINE_CUSTOMERS = {
 };
 exports.DEFAULT_POLL_WINDOWS = {
     interval: 5,
-    ordersTable: 120,
-    shipmentsTable: 180,
-    allocation: 240,
-    refund: 300,
-    cleanup: 300,
-    inventory: 240,
+    ordersTable: 60,
+    shipmentsTable: 40,
+    allocation: 50,
+    refund: 90,
+    cleanup: 120,
+    inventory: 60,
 };
 function defaultConfig() {
     return {

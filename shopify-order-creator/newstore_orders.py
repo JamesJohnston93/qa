@@ -178,19 +178,37 @@ def sku_to_product_id(sku: str) -> str:
 # Mock customer and store addresses
 # ---------------------------------------------------------------------------
 
-# Customer details used on all NewStore test orders.
-NS_MOCK_CUSTOMER: dict = {
-    "name":       "Jared Davis",
-    "email":      "jared.davis@universalstore.com.au",
-    # NewStore customer profile ID (from the staging Manager URL).
-    # Linking this ensures the injected order appears on the correct customer profile.
-    "ns_id":      "2bf9c32f-6e43-408a-b5f8-1a86981c00c4",
+# Customer details used on all NewStore test orders — dedicated QA-automation
+# identity per brand, matching the Shopify convention (config.ts BASELINE_CUSTOMERS).
+# NOTE: `ns_id` below still points at the old Jared Davis NewStore customer profile —
+# it needs a real profile ID for this identity before these orders are actually
+# injected live (see CLAUDE.md: NS cases 7-8 injection is on hold pending review).
+NS_MOCK_CUSTOMERS: dict[str, dict] = {
+    "US": {
+        "name":  "JJQA AutoNS",
+        "email": "QAauto@universalstore.com.au",
+        "ns_id": "2bf9c32f-6e43-408a-b5f8-1a86981c00c4",
+    },
+    "PS": {
+        "name":  "JJQA AutoNS",
+        "email": "QAauto@perfectstranger.com.au",
+        "ns_id": "2bf9c32f-6e43-408a-b5f8-1a86981c00c4",
+    },
 }
 
-# The customer's home address — used as shipping_address on SFS orders.
+
+def _active_customer() -> dict:
+    """Returns the QA-automation customer identity for the active brand."""
+    return NS_MOCK_CUSTOMERS[BRAND]
+
+
+# Kept for backward compatibility with any code still referencing the old flat dict.
+NS_MOCK_CUSTOMER = NS_MOCK_CUSTOMERS["US"]
+
+# The delivery address used as shipping_address on SFS orders.
 NS_MOCK_CUSTOMER_ADDRESS: dict = {
-    "first_name":     "Jared",
-    "last_name":      "Davis",
+    "first_name":     "JJQA",
+    "last_name":      "AutoNS",
     "address_line_1": "42 William Farrior Place",
     "address_line_2": "",
     "zip_code":       "4009",
@@ -444,9 +462,9 @@ def create_sfs_order(skus: list[str]) -> dict:
         "currency":     NS_CONFIG["currency"],
         "store_id":     _active_store_id(),
         "associate_id": ACTIVE_ASSOCIATE_ID,  # the staff member placing/processing the order
-        "customer_name":        NS_MOCK_CUSTOMER["name"],
-        "customer_email":       NS_MOCK_CUSTOMER["email"],
-        "external_customer_id": NS_MOCK_CUSTOMER["ns_id"],  # links order to the NewStore profile
+        "customer_name":        _active_customer()["name"],
+        "customer_email":       _active_customer()["email"],
+        "external_customer_id": _active_customer()["ns_id"],  # links order to the NewStore profile
         "is_preconfirmed": False,  # NewStore will handle routing and confirmation
         "is_fulfilled":    False,  # NewStore will handle picking and shipping
         "price_method":    NS_CONFIG["price_method"],
@@ -525,9 +543,9 @@ def create_otc_order(skus: list[str]) -> dict:
         "currency":     NS_CONFIG["currency"],
         "store_id":     _active_store_id(),
         "associate_id": ACTIVE_ASSOCIATE_ID,  # required for OTC; set via set_associate()
-        "customer_name":        NS_MOCK_CUSTOMER["name"],
-        "customer_email":       NS_MOCK_CUSTOMER["email"],
-        "external_customer_id": NS_MOCK_CUSTOMER["ns_id"],  # links order to the NewStore profile
+        "customer_name":        _active_customer()["name"],
+        "customer_email":       _active_customer()["email"],
+        "external_customer_id": _active_customer()["ns_id"],  # links order to the NewStore profile
         "is_preconfirmed": True,  # sale already confirmed at the register
         "is_fulfilled":    True,  # item already handed to the customer
         "price_method":    NS_CONFIG["price_method"],

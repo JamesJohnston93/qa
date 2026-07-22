@@ -61,9 +61,19 @@ export const BASELINE_CUSTOMERS: Record<Store, Customer> = {
 /**
  * Per-stage polling timeouts (seconds).
  *
- * Defaults are deliberately generous first guesses. Tighten them from the
- * stage timings recorded in run reports — a stage that only passes near its
- * timeout is itself a signal worth investigating.
+ * Tuned 2026-07-22 from 71 case runs across 10 reports (both stores, live
+ * staging, 2026-07-17 through 2026-07-22 incl. the US+PS full-set --repeat 3
+ * baseline). Observed p90/max per runner.ts stage:
+ *   orders_table              p90=10.8s  max=25.7s
+ *   allocation (shipments+allocation combined budget)  p90=20.3s  max=35.4s
+ *   refund                    p90=16.6s  max=16.7s (25 samples only)
+ *   cleanup                   p90=25.3s  max=50.6s (23 samples, widest variance)
+ *   inventory                 p90=0.1s   max=55.7s (single pre-fix outlier,
+ *                             order #9703, caused by the aggregate-location
+ *                             false-decrement bug fixed the same day — see
+ *                             CLAUDE.md; everything since is ~0-0.1s)
+ * Windows below keep 2-5x headroom over observed max, not just p90 — a stage
+ * passing near its timeout is itself a drift signal worth re-tuning for.
  */
 export interface PollWindows {
   interval: number; // seconds between polls
@@ -77,12 +87,12 @@ export interface PollWindows {
 
 export const DEFAULT_POLL_WINDOWS: PollWindows = {
   interval: 5,
-  ordersTable: 120,
-  shipmentsTable: 180,
-  allocation: 240,
-  refund: 300,
-  cleanup: 300,
-  inventory: 240,
+  ordersTable: 60,
+  shipmentsTable: 40,
+  allocation: 50,
+  refund: 90,
+  cleanup: 120,
+  inventory: 60,
 };
 
 export interface RegressionConfig {

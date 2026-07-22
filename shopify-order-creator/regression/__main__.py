@@ -1,4 +1,11 @@
 """
+RETIRED (2026-07-22, TAA-13 parity sign-off): this package was the executable
+reference spec the TypeScript rewrite (../ts/) was ported from and verified
+against. That porting is done and the TS harness is now the live regression
+suite, green on both stores at --repeat 3. Kept here for historical reference
+only — do not run or extend further. See ../CLAUDE.md and
+../ts-rewrite-dev-doc.md for the sign-off writeup.
+
 Entry point:
 
     python -m regression [--cases single,multi] [--store US|PS] [--repeat N]

@@ -1,6 +1,6 @@
 # TypeScript Rewrite — Dev Doc
 
-**Status:** Live on staging — 6/6 cases implemented, first full run 4/6 green, cleanup fix landed
+**Status:** PARITY SIGNED OFF (2026-07-22). 6/6 baseline cases implemented, live on staging, full 6-case × `--repeat 3` green on both US and PS, PollWindows tuned from real stage timings. Python `regression/` v0.1 is retired — TS (`ts/`) is now the live regression suite. NS cases 7-8 are the one deferred item, on hold pending JJ's review.
 **Owner:** JJ
 **Relates to:** TAA-13 (this work), TAA-3 (regression baseline), Scope of Work phase 1
 
@@ -18,16 +18,75 @@ strict-only), real Shopify + Dynamo readers with **confirmed schemas** (correlat
 - **Root cause found and fixed:** the cleanup assertion expected ITEM# rows to be *deleted*; staging actually flips row status to `REMOVED` and never deletes. Assertion now checks status (commit 07fa507). Design doc + Python reference corrected to match.
 - Second fix from live runs: orders now use dedicated QA-automation customer identities (real company email domains), not Jared's staff account.
 
-**Recorded stage latencies (for PollWindows tuning):** orders_table ~10–21s,
-allocation ~5–35s, refund ~17s, inventory ~0–56s. Current windows are generous; fine
+**Recorded stage latencies (for PollWindows tuning):** orders_table ~5–26s,
+allocation ~5–36s, refund ~5.7–17s, cleanup ~10–51s, inventory ~0–56s. Current windows are generous; fine
 for now, tighten after more runs.
 
-**Remaining to close TAA-13:**
+**Full set × `--repeat 3` (2026-07-22, US, orders #9740–#9757):** PASS, zero variance across
+all 3 repeats of all 6 cases. Confirms the cleanup fix holds under repeat load (cleanup times
+trended down: 25.3s → 20.2s → 15.2s) and that the isolated #9735 refund-miss (see CLAUDE.md)
+didn't recur — all 3 `partial_undeliverable` refunds landed in 5.7s. Report:
+`ts/reports/regression_US_20260722T050946Z.md`.
 
-- [ ] Re-run full set post-cleanup-fix; then `--repeat 3` (zero variance required)
-- [ ] Run the set against PS
-- [ ] NewStore client still stubbed — confirm read-back endpoint, wire cases 7–8 (or explicitly move NS coverage to a follow-up ticket)
-- [ ] Parity sign-off → retire Python package
+**Full set × `--repeat 3` (2026-07-22, PS, orders #3252–#3269):** PASS, zero variance across
+all 3 repeats of all 6 cases — same clean result as US. Timings generally tighter than US
+(`seed_inventory` 1.2–6.7s, `undeliverable` cleanup 10.1–20.2s, `partial_undeliverable` refund
+5.7s all 3 runs). Report: `ts/reports/regression_PS_20260722T052237Z.md`.
+
+**NewStore read endpoint confirmed (2026-07-22):** `GET /v0/d/external_orders/{external_id}`
+(the `/v0/d/orders/{uuid}` candidate 404s — "no static resource"). Response shape:
+`order_uuid`, `order_id` (`ST...` display id), `ordered_products[]` with `product_sku`/
+`quantity`/`item_id`. Propagation delay ≈2s post-injection — needs its own short poll window,
+not the longer Shopify/Dynamo ones. Probed live against US staging with a guaranteed-unique
+external_id (bypassing `order_counter.json`); confirms the read contract for
+`readers/newstoreReader.ts`.
+
+**Bug confirmed in `order_counter.json` (2026-07-22):** reusing its counter value collided
+with an existing external_id and NewStore's injection API silently returned that old,
+unrelated order instead of erroring — stronger evidence for fix #4 below (collision-free
+IDs). See CLAUDE.md for the full repro.
+
+Renamed the NS customer identity away from Jared Davis: `newstore_orders.py`'s
+`NS_MOCK_CUSTOMER` → per-brand `NS_MOCK_CUSTOMERS` (`_active_customer()`), matching the
+Shopify `JJQA Auto*` convention. `ns_id` still points at Jared's real NewStore profile
+(flagged TODO — needs a real profile before live use); `NS_ASSOCIATES` (real staff accounts)
+left untouched, that's not a customer identity.
+
+**PollWindows tuned (2026-07-22)** from 71 case runs across 10 reports (both stores,
+2026-07-17 through 2026-07-22): `ordersTable` 120→60s, `shipmentsTable+allocation` 420→90s
+(40/50 split), `refund` 300→90s, `cleanup` 300→120s, `inventory` 240→60s. See `config.ts`'s
+`DEFAULT_POLL_WINDOWS` comment for the p90/max data behind each.
+
+**Recurring intermittent finding, explicitly deferred (2026-07-22):** the tuned-PollWindows
+validation re-run turned up a second `partial_undeliverable` refund-automation miss (order
+#9771 — `PAID`, zero refunds, confirmed live; identical signature to the earlier #9735). 2
+misses out of ~14 runs. Per JJ: not a ticket right now — this is a real backend gap the
+harness correctly detects, not a TS-vs-Python parity gap, and doesn't block sign-off. He'll
+triage backend defects himself once the rewrite is finished.
+
+**TAA-13 checklist — closed 2026-07-22:**
+
+- [x] Re-run full set post-cleanup-fix; then `--repeat 3` (zero variance required) — done, US, 2026-07-22
+- [x] Run the set against PS — done, PS, 2026-07-22, zero variance
+- [x] Confirm NewStore read-back endpoint — done, 2026-07-22 (see above; not yet wired)
+- [x] Tune `PollWindows` from recorded stage timings — done, 2026-07-22, re-validated live
+- [x] NS cases 7–8 — **explicitly out of scope for this sign-off**, deferred pending JJ's review
+- [x] Parity sign-off → retire Python package — **done, 2026-07-22**. See "Sign-off" below.
+
+## Sign-off (2026-07-22)
+
+TS harness (`ts/`) reproduces the Python `regression/` v0.1 baseline's case set (single,
+multi, unique, split, undeliverable, partial_undeliverable) and its full verification chain
+(Shopify read-back → orders-table alignment → shipment allocation → refund/cleanup →
+inventory decrement) live on staging, green at `--repeat 3` on both US and PS. The one known
+gap (intermittent refund-automation miss, ~15% of `partial_undeliverable` runs) is a backend
+defect the harness correctly surfaces each time — not a behavioral difference between the
+Python and TS implementations — so it doesn't block sign-off per JJ's call above.
+
+Python `regression/` v0.1 is retired as of this sign-off: historical reference only, not to
+be run or extended further. `main.py` and the rest of the interactive Python CLI are
+unaffected — separate scope, still active. NS cases 7-8 remain the one deferred item, to be
+picked up per JJ's review after this rewrite phase closes out.
 
 Full task state: [TAA-13](https://universalstore.atlassian.net/browse/TAA-13).
 
@@ -87,7 +146,7 @@ qa/
 - Same verification chain per case: Shopify read-back (paid + line items, duplicate-merge safe) → orders-table alignment → shipment unit counts + allocation → refund/no-refund → cleanup → exact inventory decrement.
 - JSON report shape compatible with the Python `report.py` schema so runs are diffable across languages during the transition.
 - Exit non-zero on any failure or repeat variance.
-- Baseline passes live with `--repeat 3`, zero variance, both stores → Python retired.
+- Baseline passes live with `--repeat 3`, zero variance, both stores → Python retired. **Met 2026-07-22** — with the caveat that a known intermittent backend defect (refund automation, ~15% of `partial_undeliverable` runs, not a TS/Python difference) doesn't block sign-off per JJ's call. See "Sign-off" section above.
 
 ## Fixes to bake in (do NOT port these bugs)
 
@@ -112,4 +171,4 @@ qa/
 4. `readers/` + `verification/` + polling (unit-test assertion logic offline — the Python logic checks in this repo's history show what to cover).
 5. Cases 1–6 + runner + reporting + `--repeat`.
 6. Schema confirmation baked in; first live run; tune PollWindows.
-7. Live baseline green ×3 repeats both stores → sign off parity → retire Python.
+7. ~~Live baseline green ×3 repeats both stores → sign off parity → retire Python.~~ — done 2026-07-22.
