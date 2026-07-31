@@ -108,6 +108,11 @@ async function runCase(config, caseDef) {
     const dynamoReader = new dynamoReader_1.DynamoReader(dynamo, config);
     const shopify = new shopify_1.ShopifyClient(config.store);
     const poll = config.poll;
+    // TAA-14 Phase A step 2: ramp 1s->2s->3s->cap poll.interval instead of a
+    // fixed sleep every tick. Shopify-touching stages keep a 2s floor even on
+    // the first poll to stay clear of rate limits.
+    const dynamoInterval = { cap: poll.interval };
+    const shopifyInterval = { cap: poll.interval, min: 2 };
     try {
         // --- 1. Seed inventory deterministically -------------------------------
         let t0 = Date.now();
@@ -123,10 +128,10 @@ async function runCase(config, caseDef) {
         const oidTail = shopifyReader.orderIdTail(record.orderId);
         const oname = record.orderName;
         // --- 3. Shopify read-back: exists, paid, items match --------------------
-        const readback = await pollVerify(() => shopifyReader.getOrder(shopify, record.orderId), (snap) => (0, orders_1.assertShopifyOrder)(snap, caseDef.skuQuantities), 60, poll.interval, "shopify_readback", config.verbose);
+        const readback = await pollVerify(() => shopifyReader.getOrder(shopify, record.orderId), (snap) => (0, orders_1.assertShopifyOrder)(snap, caseDef.skuQuantities), 60, shopifyInterval, "shopify_readback", config.verbose);
         stageDone("shopify_readback", readback.elapsed);
         // --- 4. staging-orders-v2 row lands and matches -------------------------
-        const ordersTable = await pollVerify(() => dynamoReader.getOrderSkuQuantities(config.store, oidTail), (q) => (0, orders_1.assertOrdersTableAlignment)(q, caseDef.skuQuantities, oname), poll.ordersTable, poll.interval, "orders_table", config.verbose);
+        const ordersTable = await pollVerify(() => dynamoReader.getOrderSkuQuantities(config.store, oidTail), (q) => (0, orders_1.assertOrdersTableAlignment)(q, caseDef.skuQuantities, oname), poll.ordersTable, dynamoInterval, "orders_table", config.verbose);
         stageDone("orders_table", ordersTable.elapsed);
         // --- 5. Shipment ITEM# rows: unit counts, then terminal allocation ------
         const checkAllocation = (items) => {
@@ -134,13 +139,13 @@ async function runCase(config, caseDef) {
             (0, shipments_1.assertUnitCounts)(summary, caseDef.skuQuantities, oname);
             (0, shipments_1.assertAllocation)(summary, caseDef.expectedAllocation, oname);
         };
-        const allocation = await pollVerify(() => dynamoReader.getShipmentItems(config.store, oidTail), checkAllocation, poll.shipmentsTable + poll.allocation, poll.interval, "allocation", config.verbose);
+        const allocation = await pollVerify(() => dynamoReader.getShipmentItems(config.store, oidTail), checkAllocation, poll.shipmentsTable + poll.allocation, dynamoInterval, "allocation", config.verbose);
         stageDone("allocation", allocation.elapsed);
         // --- 6. Refund path (undeliverable cases) or no-refund check ------------
         if (Object.keys(caseDef.expectedRefundSkus).length > 0) {
-            const refund = await pollVerify(() => shopifyReader.getOrder(shopify, record.orderId), (snap) => (0, refunds_1.assertRefundForSkus)(snap, caseDef.expectedRefundSkus), poll.refund, poll.interval, "refund", config.verbose);
+            const refund = await pollVerify(() => shopifyReader.getOrder(shopify, record.orderId), (snap) => (0, refunds_1.assertRefundForSkus)(snap, caseDef.expectedRefundSkus), poll.refund, shopifyInterval, "refund", config.verbose);
             stageDone("refund", refund.elapsed);
-            const cleanup = await pollVerify(() => dynamoReader.getShipmentItems(config.store, oidTail), (items) => (0, shipments_1.assertItemsRemoved)(items, caseDef.cleanupSkus, oname), poll.cleanup, poll.interval, "cleanup", config.verbose);
+            const cleanup = await pollVerify(() => dynamoReader.getShipmentItems(config.store, oidTail), (items) => (0, shipments_1.assertItemsRemoved)(items, caseDef.cleanupSkus, oname), poll.cleanup, dynamoInterval, "cleanup", config.verbose);
             stageDone("cleanup", cleanup.elapsed);
         }
         else {
@@ -149,7 +154,7 @@ async function runCase(config, caseDef) {
             stageDone("no_refund", 0);
         }
         // --- 7. Inventory decremented exactly as expected -----------------------
-        const inventory = await pollVerify(() => dynamo.snapshotInventory(skus), (after) => (0, inventory_1.assertDecrements)(before, after, caseDef.expectedDecrements, oname), poll.inventory, poll.interval, "inventory", config.verbose);
+        const inventory = await pollVerify(() => dynamo.snapshotInventory(skus), (after) => (0, inventory_1.assertDecrements)(before, after, caseDef.expectedDecrements, oname), poll.inventory, dynamoInterval, "inventory", config.verbose);
         stageDone("inventory", inventory.elapsed);
         result.passed = true;
     }

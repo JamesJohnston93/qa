@@ -13,7 +13,7 @@ import { DynamoClient } from "./clients/dynamo";
 import { ShopifyClient } from "./clients/shopify";
 import { DynamoReader, allocationSummary, type ShipmentItem } from "./readers/dynamoReader";
 import * as shopifyReader from "./readers/shopifyReader";
-import { pollUntil, StageTimeout } from "./polling";
+import { pollUntil, StageTimeout, type PollIntervalConfig } from "./polling";
 import { VerificationError } from "./verify/index";
 import { assertOrdersTableAlignment, assertShopifyOrder } from "./verify/orders";
 import { assertAllocation, assertItemsRemoved, assertUnitCounts } from "./verify/shipments";
@@ -58,7 +58,7 @@ async function pollVerify<T>(
   fetch: () => Promise<T> | T,
   verifyFn: (value: T) => void,
   timeout: number,
-  interval: number,
+  interval: number | PollIntervalConfig,
   stage: string,
   verbose: boolean,
 ) {
@@ -112,6 +112,11 @@ export async function runCase(config: RegressionConfig, caseDef: CaseDefinition)
   const dynamoReader = new DynamoReader(dynamo, config);
   const shopify = new ShopifyClient(config.store);
   const poll = config.poll;
+  // TAA-14 Phase A step 2: ramp 1s->2s->3s->cap poll.interval instead of a
+  // fixed sleep every tick. Shopify-touching stages keep a 2s floor even on
+  // the first poll to stay clear of rate limits.
+  const dynamoInterval: PollIntervalConfig = { cap: poll.interval };
+  const shopifyInterval: PollIntervalConfig = { cap: poll.interval, min: 2 };
 
   try {
     // --- 1. Seed inventory deterministically -------------------------------
@@ -135,7 +140,7 @@ export async function runCase(config: RegressionConfig, caseDef: CaseDefinition)
       () => shopifyReader.getOrder(shopify, record.orderId),
       (snap) => assertShopifyOrder(snap, caseDef.skuQuantities),
       60,
-      poll.interval,
+      shopifyInterval,
       "shopify_readback",
       config.verbose,
     );
@@ -146,7 +151,7 @@ export async function runCase(config: RegressionConfig, caseDef: CaseDefinition)
       () => dynamoReader.getOrderSkuQuantities(config.store, oidTail),
       (q) => assertOrdersTableAlignment(q, caseDef.skuQuantities, oname),
       poll.ordersTable,
-      poll.interval,
+      dynamoInterval,
       "orders_table",
       config.verbose,
     );
@@ -162,7 +167,7 @@ export async function runCase(config: RegressionConfig, caseDef: CaseDefinition)
       () => dynamoReader.getShipmentItems(config.store, oidTail),
       checkAllocation,
       poll.shipmentsTable + poll.allocation,
-      poll.interval,
+      dynamoInterval,
       "allocation",
       config.verbose,
     );
@@ -174,7 +179,7 @@ export async function runCase(config: RegressionConfig, caseDef: CaseDefinition)
         () => shopifyReader.getOrder(shopify, record.orderId),
         (snap) => assertRefundForSkus(snap, caseDef.expectedRefundSkus),
         poll.refund,
-        poll.interval,
+        shopifyInterval,
         "refund",
         config.verbose,
       );
@@ -184,7 +189,7 @@ export async function runCase(config: RegressionConfig, caseDef: CaseDefinition)
         () => dynamoReader.getShipmentItems(config.store, oidTail),
         (items) => assertItemsRemoved(items, caseDef.cleanupSkus, oname),
         poll.cleanup,
-        poll.interval,
+        dynamoInterval,
         "cleanup",
         config.verbose,
       );
@@ -200,7 +205,7 @@ export async function runCase(config: RegressionConfig, caseDef: CaseDefinition)
       () => dynamo.snapshotInventory(skus),
       (after) => assertDecrements(before, after, caseDef.expectedDecrements, oname),
       poll.inventory,
-      poll.interval,
+      dynamoInterval,
       "inventory",
       config.verbose,
     );
