@@ -153,6 +153,34 @@ export class ShopifyClient {
     return rates[0].handle;
   }
 
+  /**
+   * Batch price lookup by variant GID (ports orders_processor.get_shopify_prices
+   * / graphql_scripts.get_variant_prices). Used by NewStore order injection so
+   * an order's total matches the real Shopify RRP. Returns only GIDs Shopify
+   * actually resolved — a null `nodes` entry (unknown/deleted variant) is
+   * silently omitted, not defaulted; callers must treat a missing GID as a
+   * hard failure, not fall back to a synthetic price.
+   */
+  async fetchVariantPrices(variantIds: string[]): Promise<Record<string, number>> {
+    if (variantIds.length === 0) {
+      return {};
+    }
+    const result = await this.execute<{ nodes: Array<{ id: string; price: string } | null> }>(
+      VARIANT_PRICES,
+      { ids: variantIds },
+    );
+    const nodes = result.data?.nodes;
+    if (!nodes) {
+      throw new Error(`nodes query for variant prices returned no data: ${JSON.stringify(result)}`);
+    }
+    const prices: Record<string, number> = {};
+    for (const node of nodes) {
+      if (!node) continue;
+      prices[node.id] = Number(node.price);
+    }
+    return prices;
+  }
+
   private getEndpoint(): string {
     return this.store === "US"
       ? "https://universal-store-staging.myshopify.com/admin/api/2025-10/graphql.json"
@@ -219,6 +247,17 @@ const DRAFT_ORDER_COMPLETE = `
         order { id name }
       }
       userErrors { field message }
+    }
+  }
+`;
+
+const VARIANT_PRICES = `
+  query getVariantPrices($ids: [ID!]!) {
+    nodes(ids: $ids) {
+      ... on ProductVariant {
+        id
+        price
+      }
     }
   }
 `;
