@@ -1,0 +1,31 @@
+{
+  "store": "US",
+  "timestamp": "20260731T032011Z",
+  "repeat": 1,
+  "passed": false,
+  "repeatConsistent": true,
+  "variance": {},
+  "runs": [
+    {
+      "store": "US",
+      "cases": [
+        {
+          "case": "single",
+          "store": "US",
+          "description": "Single item, stock at one location -> one shipment there",
+          "passed": false,
+          "orderId": "",
+          "orderName": "",
+          "stages": [],
+          "error": {
+            "check": "unexpected_error",
+            "expected": "",
+            "actual": "CredentialsProviderError: The SSO session associated with this profile has expired. To refresh this SSO session run aws sso login with the corresponding profile.",
+            "detail": "CredentialsProviderError: The SSO session associated with this profile has expired. To refresh this SSO session run aws sso login with the corresponding profile.\n    at resolveSSOCredentials (/Users/james.johnston/Documents/GitHub/qa/shopify-order-creator/ts/node_modules/@aws-sdk/credential-provider-sso/dist-cjs/index.js:51:15)\n    at async coalesceProvider (/Users/james.johnston/Documents/GitHub/qa/shopify-order-creator/ts/node_modules/@smithy/core/dist-cjs/index.js:287:24)\n    at async /Users/james.johnston/Documents/GitHub/qa/shopify-order-creator/ts/node_modules/@smithy/core/dist-cjs/index.js:306:24\n    at async resolvedCredentials (/Users/james.johnston/Documents/GitHub/qa/shopify-order-creator/ts/node_modules/@aws-sdk/core/dist-cjs/submodules/httpAuthSchemes/index.js:183:35)"
+          }
+        }
+      ],
+      "passed": false
+    }
+  ]
+}
