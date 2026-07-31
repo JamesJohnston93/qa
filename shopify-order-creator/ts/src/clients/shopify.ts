@@ -157,9 +157,18 @@ export class ShopifyClient {
    * Batch price lookup by variant GID (ports orders_processor.get_shopify_prices
    * / graphql_scripts.get_variant_prices). Used by NewStore order injection so
    * an order's total matches the real Shopify RRP. Returns only GIDs Shopify
-   * actually resolved — a null `nodes` entry (unknown/deleted variant) is
-   * silently omitted, not defaulted; callers must treat a missing GID as a
-   * hard failure, not fall back to a synthetic price.
+   * actually resolved — a null `nodes` entry with no accompanying error
+   * (unknown/deleted variant) is silently omitted, not defaulted; callers
+   * must treat a missing GID as a hard failure, not fall back to a synthetic
+   * price.
+   *
+   * A per-node GraphQL error (e.g. an access-scope denial) also produces a
+   * null node, but must NOT be silently swallowed the same way — confirmed
+   * live 2026-07-31 against PS staging: a missing `read_products` scope
+   * returns `errors: [{message: "Access denied...", extensions: {code:
+   * "ACCESS_DENIED"}}]` alongside `data.nodes: [null]`, and a caller only
+   * seeing "no price found" would misdiagnose a permissions problem as an
+   * unpriceable SKU. Any top-level `errors` array is surfaced immediately.
    */
   async fetchVariantPrices(variantIds: string[]): Promise<Record<string, number>> {
     if (variantIds.length === 0) {
@@ -169,6 +178,9 @@ export class ShopifyClient {
       VARIANT_PRICES,
       { ids: variantIds },
     );
+    if (result.errors && result.errors.length > 0) {
+      throw new Error(`variant price lookup failed: ${JSON.stringify(result.errors)}`);
+    }
     const nodes = result.data?.nodes;
     if (!nodes) {
       throw new Error(`nodes query for variant prices returned no data: ${JSON.stringify(result)}`);
