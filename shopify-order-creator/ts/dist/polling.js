@@ -12,6 +12,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.StageTimeout = void 0;
 exports.resolveInterval = resolveInterval;
+exports.sleep = sleep;
 exports.pollUntil = pollUntil;
 class StageTimeout extends Error {
     stage;

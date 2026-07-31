@@ -11,9 +11,15 @@ import { buildCases, type CaseDefinition } from "./cases/baselineCases";
 import { prepareInventory, placeOrder } from "./flows/orderFlow";
 import { DynamoClient } from "./clients/dynamo";
 import { ShopifyClient } from "./clients/shopify";
-import { DynamoReader, allocationSummary, type ShipmentItem } from "./readers/dynamoReader";
+import {
+  DynamoReader,
+  allocationSummary,
+  orderPkFromRows,
+  orderSkuQuantitiesFromRows,
+  type ShipmentItem,
+} from "./readers/dynamoReader";
 import * as shopifyReader from "./readers/shopifyReader";
-import { pollUntil, StageTimeout, type PollIntervalConfig } from "./polling";
+import { pollUntil, resolveInterval, sleep, StageTimeout, type PollIntervalConfig } from "./polling";
 import { VerificationError } from "./verify/index";
 import { assertOrdersTableAlignment, assertShopifyOrder } from "./verify/orders";
 import { assertAllocation, assertItemsRemoved, assertUnitCounts } from "./verify/shipments";
@@ -146,32 +152,86 @@ export async function runCase(config: RegressionConfig, caseDef: CaseDefinition)
     );
     stageDone("shopify_readback", readback.elapsed);
 
-    // --- 4. staging-orders-v2 row lands and matches -------------------------
-    const ordersTable = await pollVerify(
-      () => dynamoReader.getOrderSkuQuantities(config.store, oidTail),
-      (q) => assertOrdersTableAlignment(q, caseDef.skuQuantities, oname),
-      poll.ordersTable,
-      dynamoInterval,
-      "orders_table",
-      config.verbose,
-    );
-    stageDone("orders_table", ordersTable.elapsed);
-
-    // --- 5. Shipment ITEM# rows: unit counts, then terminal allocation ------
+    // --- 4+5. orders-v2 row + shipment ITEM# rows: composite poll -----------
+    // TAA-14 Phase A step 3: both checks key off the same staging-orders-v2
+    // rows (allocation needs the order's PK, which lives there too), so one
+    // tick fetches those rows once and advances whichever of orders_table /
+    // allocation now passes — a stage that becomes true while the other is
+    // still pending is caught immediately instead of waiting for a fresh,
+    // separately-ramped poll cycle to start once the first stage finishes.
     const checkAllocation = (items: ShipmentItem[]): void => {
       const summary = allocationSummary(items);
       assertUnitCounts(summary, caseDef.skuQuantities, oname);
       assertAllocation(summary, caseDef.expectedAllocation, oname);
     };
-    const allocation = await pollVerify(
-      () => dynamoReader.getShipmentItems(config.store, oidTail),
-      checkAllocation,
-      poll.shipmentsTable + poll.allocation,
-      dynamoInterval,
-      "allocation",
-      config.verbose,
-    );
-    stageDone("allocation", allocation.elapsed);
+    const ordersTimeout = poll.ordersTable;
+    const allocationTimeout = poll.shipmentsTable + poll.allocation;
+    const compositeStart = Date.now();
+    let compositeAttempts = 0;
+    let ordersDone: { elapsed: number } | null = null;
+    let allocationDone: { elapsed: number } | null = null;
+    let resolvedPk: string | null = null;
+    let lastSkuQuantities: Record<string, number> = {};
+    let lastItems: ShipmentItem[] = [];
+
+    for (;;) {
+      const rows = await dynamoReader.getOrderRows(config.store, oidTail);
+      compositeAttempts += 1;
+      const elapsed = (Date.now() - compositeStart) / 1000;
+
+      if (!ordersDone) {
+        lastSkuQuantities = orderSkuQuantitiesFromRows(rows);
+        try {
+          assertOrdersTableAlignment(lastSkuQuantities, caseDef.skuQuantities, oname);
+          ordersDone = { elapsed };
+          if (config.verbose) {
+            console.log(`    [poll] orders_table: ok after ${elapsed.toFixed(1)}s (${compositeAttempts} checks)`);
+          }
+        } catch (error) {
+          if (!(error instanceof VerificationError)) {
+            throw error;
+          }
+        }
+      }
+
+      resolvedPk = resolvedPk ?? orderPkFromRows(rows);
+      if (!allocationDone && resolvedPk) {
+        lastItems = await dynamoReader.getShipmentItemsByPk(resolvedPk);
+        try {
+          checkAllocation(lastItems);
+          allocationDone = { elapsed };
+          if (config.verbose) {
+            console.log(`    [poll] allocation: ok after ${elapsed.toFixed(1)}s (${compositeAttempts} checks)`);
+          }
+        } catch (error) {
+          if (!(error instanceof VerificationError)) {
+            throw error;
+          }
+        }
+      }
+
+      if (ordersDone && allocationDone) {
+        break;
+      }
+
+      if (!ordersDone && elapsed >= ordersTimeout) {
+        assertOrdersTableAlignment(lastSkuQuantities, caseDef.skuQuantities, oname); // raises the detailed error
+      }
+      if (!allocationDone && elapsed >= allocationTimeout) {
+        checkAllocation(lastItems); // raises the detailed error
+      }
+
+      if (config.verbose) {
+        console.log(
+          `    [poll] orders_table+allocation: waiting... (${elapsed.toFixed(0)}s) ` +
+            `orders=${ordersDone ? "done" : "pending"} allocation=${allocationDone ? "done" : "pending"}`,
+        );
+      }
+      await sleep(resolveInterval(compositeAttempts, dynamoInterval) * 1000);
+    }
+
+    stageDone("orders_table", ordersDone.elapsed);
+    stageDone("allocation", allocationDone.elapsed);
 
     // --- 6. Refund path (undeliverable cases) or no-refund check ------------
     if (Object.keys(caseDef.expectedRefundSkus).length > 0) {

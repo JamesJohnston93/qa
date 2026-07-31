@@ -130,17 +130,79 @@ async function runCase(config, caseDef) {
         // --- 3. Shopify read-back: exists, paid, items match --------------------
         const readback = await pollVerify(() => shopifyReader.getOrder(shopify, record.orderId), (snap) => (0, orders_1.assertShopifyOrder)(snap, caseDef.skuQuantities), 60, shopifyInterval, "shopify_readback", config.verbose);
         stageDone("shopify_readback", readback.elapsed);
-        // --- 4. staging-orders-v2 row lands and matches -------------------------
-        const ordersTable = await pollVerify(() => dynamoReader.getOrderSkuQuantities(config.store, oidTail), (q) => (0, orders_1.assertOrdersTableAlignment)(q, caseDef.skuQuantities, oname), poll.ordersTable, dynamoInterval, "orders_table", config.verbose);
-        stageDone("orders_table", ordersTable.elapsed);
-        // --- 5. Shipment ITEM# rows: unit counts, then terminal allocation ------
+        // --- 4+5. orders-v2 row + shipment ITEM# rows: composite poll -----------
+        // TAA-14 Phase A step 3: both checks key off the same staging-orders-v2
+        // rows (allocation needs the order's PK, which lives there too), so one
+        // tick fetches those rows once and advances whichever of orders_table /
+        // allocation now passes — a stage that becomes true while the other is
+        // still pending is caught immediately instead of waiting for a fresh,
+        // separately-ramped poll cycle to start once the first stage finishes.
         const checkAllocation = (items) => {
             const summary = (0, dynamoReader_1.allocationSummary)(items);
             (0, shipments_1.assertUnitCounts)(summary, caseDef.skuQuantities, oname);
             (0, shipments_1.assertAllocation)(summary, caseDef.expectedAllocation, oname);
         };
-        const allocation = await pollVerify(() => dynamoReader.getShipmentItems(config.store, oidTail), checkAllocation, poll.shipmentsTable + poll.allocation, dynamoInterval, "allocation", config.verbose);
-        stageDone("allocation", allocation.elapsed);
+        const ordersTimeout = poll.ordersTable;
+        const allocationTimeout = poll.shipmentsTable + poll.allocation;
+        const compositeStart = Date.now();
+        let compositeAttempts = 0;
+        let ordersDone = null;
+        let allocationDone = null;
+        let resolvedPk = null;
+        let lastSkuQuantities = {};
+        let lastItems = [];
+        for (;;) {
+            const rows = await dynamoReader.getOrderRows(config.store, oidTail);
+            compositeAttempts += 1;
+            const elapsed = (Date.now() - compositeStart) / 1000;
+            if (!ordersDone) {
+                lastSkuQuantities = (0, dynamoReader_1.orderSkuQuantitiesFromRows)(rows);
+                try {
+                    (0, orders_1.assertOrdersTableAlignment)(lastSkuQuantities, caseDef.skuQuantities, oname);
+                    ordersDone = { elapsed };
+                    if (config.verbose) {
+                        console.log(`    [poll] orders_table: ok after ${elapsed.toFixed(1)}s (${compositeAttempts} checks)`);
+                    }
+                }
+                catch (error) {
+                    if (!(error instanceof index_1.VerificationError)) {
+                        throw error;
+                    }
+                }
+            }
+            resolvedPk = resolvedPk ?? (0, dynamoReader_1.orderPkFromRows)(rows);
+            if (!allocationDone && resolvedPk) {
+                lastItems = await dynamoReader.getShipmentItemsByPk(resolvedPk);
+                try {
+                    checkAllocation(lastItems);
+                    allocationDone = { elapsed };
+                    if (config.verbose) {
+                        console.log(`    [poll] allocation: ok after ${elapsed.toFixed(1)}s (${compositeAttempts} checks)`);
+                    }
+                }
+                catch (error) {
+                    if (!(error instanceof index_1.VerificationError)) {
+                        throw error;
+                    }
+                }
+            }
+            if (ordersDone && allocationDone) {
+                break;
+            }
+            if (!ordersDone && elapsed >= ordersTimeout) {
+                (0, orders_1.assertOrdersTableAlignment)(lastSkuQuantities, caseDef.skuQuantities, oname); // raises the detailed error
+            }
+            if (!allocationDone && elapsed >= allocationTimeout) {
+                checkAllocation(lastItems); // raises the detailed error
+            }
+            if (config.verbose) {
+                console.log(`    [poll] orders_table+allocation: waiting... (${elapsed.toFixed(0)}s) ` +
+                    `orders=${ordersDone ? "done" : "pending"} allocation=${allocationDone ? "done" : "pending"}`);
+            }
+            await (0, polling_1.sleep)((0, polling_1.resolveInterval)(compositeAttempts, dynamoInterval) * 1000);
+        }
+        stageDone("orders_table", ordersDone.elapsed);
+        stageDone("allocation", allocationDone.elapsed);
         // --- 6. Refund path (undeliverable cases) or no-refund check ------------
         if (Object.keys(caseDef.expectedRefundSkus).length > 0) {
             const refund = await pollVerify(() => shopifyReader.getOrder(shopify, record.orderId), (snap) => (0, refunds_1.assertRefundForSkus)(snap, caseDef.expectedRefundSkus), poll.refund, shopifyInterval, "refund", config.verbose);
