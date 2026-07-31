@@ -15,6 +15,9 @@
  * — store is an explicit parameter on every call.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.NS_SHIPPING_PRICE = exports.NS_SHOP_LOCALE = void 0;
+exports.shopIdFor = shopIdFor;
+exports.customerNameFor = customerNameFor;
 exports.gstAmount = gstAmount;
 exports.generateExternalId = generateExternalId;
 exports.buildSfsPayload = buildSfsPayload;
@@ -93,6 +96,16 @@ const NS_STORE_ADDRESSES = {
         phone: "",
     },
 };
+// Small accessors for the flows/receipts.ts port — avoids duplicating these
+// per-store constants a third time (they already live once, above).
+function shopIdFor(store) {
+    return SHOP_IDS[store];
+}
+function customerNameFor(store) {
+    return NS_CUSTOMERS[store].name;
+}
+exports.NS_SHOP_LOCALE = NS_CONFIG.shopLocale;
+exports.NS_SHIPPING_PRICE = NS_CONFIG.defaultShippingPrice;
 function addressPayload(address) {
     return {
         first_name: address.firstName,

@@ -121,6 +121,17 @@ const NS_STORE_ADDRESSES: Record<Store, NsAddress> = {
   },
 };
 
+// Small accessors for the flows/receipts.ts port — avoids duplicating these
+// per-store constants a third time (they already live once, above).
+export function shopIdFor(store: Store): string {
+  return SHOP_IDS[store];
+}
+export function customerNameFor(store: Store): string {
+  return NS_CUSTOMERS[store].name;
+}
+export const NS_SHOP_LOCALE = NS_CONFIG.shopLocale;
+export const NS_SHIPPING_PRICE = NS_CONFIG.defaultShippingPrice;
+
 function addressPayload(address: NsAddress): Record<string, string> {
   return {
     first_name: address.firstName,
