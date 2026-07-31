@@ -20,6 +20,15 @@ import {
 } from "./readers/dynamoReader";
 import * as shopifyReader from "./readers/shopifyReader";
 import { pollUntil, resolveInterval, sleep, StageTimeout, type PollIntervalConfig } from "./polling";
+import {
+  buildRunPlan,
+  createProgressTracker,
+  estimateRemainingSeconds,
+  formatProgressLine,
+  recordStageAverage,
+  stageSequenceFor,
+  type ProgressTracker,
+} from "./progress";
 import { VerificationError } from "./verify/index";
 import { assertOrdersTableAlignment, assertShopifyOrder } from "./verify/orders";
 import { assertAllocation, assertItemsRemoved, assertUnitCounts } from "./verify/shipments";
@@ -67,6 +76,7 @@ async function pollVerify<T>(
   interval: number | PollIntervalConfig,
   stage: string,
   verbose: boolean,
+  onWaiting?: (elapsed: number, attempts: number) => void,
 ) {
   const predicate = (value: T): boolean => {
     try {
@@ -81,7 +91,7 @@ async function pollVerify<T>(
   };
 
   try {
-    return await pollUntil(fetch, predicate, timeout, interval, stage, verbose);
+    return await pollUntil(fetch, predicate, timeout, interval, stage, verbose, onWaiting);
   } catch (error) {
     if (error instanceof StageTimeout) {
       verifyFn(error.lastValue as T); // raises the detailed VerificationError
@@ -94,8 +104,19 @@ function round(value: number): number {
   return Number(value.toFixed(1));
 }
 
+export interface ProgressPosition {
+  tracker: ProgressTracker;
+  repeatIndex: number; // 0-based
+  caseIndex: number; // 0-based, within this repeat's case list
+  totalCases: number;
+}
+
 /** Executes one CaseDefinition. Returns a result (never throws). */
-export async function runCase(config: RegressionConfig, caseDef: CaseDefinition): Promise<CaseResult> {
+export async function runCase(
+  config: RegressionConfig,
+  caseDef: CaseDefinition,
+  progress?: ProgressPosition,
+): Promise<CaseResult> {
   const result: CaseResult = {
     case: caseDef.name,
     store: config.store,
@@ -107,8 +128,40 @@ export async function runCase(config: RegressionConfig, caseDef: CaseDefinition)
     error: null,
   };
 
+  // TAA-14 Phase A step 4: live progress line, updated per poll tick.
+  const hasRefund = Object.keys(caseDef.expectedRefundSkus).length > 0;
+  const caseStages = stageSequenceFor(hasRefund);
+  const printProgress = (stageName: string, secondsInStage: number): void => {
+    if (!config.verbose || !progress) {
+      return;
+    }
+    const { tracker, repeatIndex, caseIndex, totalCases } = progress;
+    const stageIndex = caseStages.indexOf(stageName);
+    console.log(
+      `    ${formatProgressLine({
+        repeatIndex,
+        totalRepeats: tracker.totalRepeats,
+        caseIndex,
+        totalCases,
+        caseName: caseDef.name,
+        stageIndex: stageIndex < 0 ? 0 : stageIndex,
+        totalCaseStages: caseStages.length,
+        stageName,
+        secondsInStage,
+        completedStages: tracker.completedStages,
+        totalStages: tracker.flatPlan.length,
+        elapsedSeconds: (Date.now() - tracker.runStart) / 1000,
+        etaSeconds: estimateRemainingSeconds(tracker, secondsInStage),
+      })}`,
+    );
+  };
+
   const stageDone = (name: string, elapsed: number): void => {
     result.stages.push({ name, elapsed: round(elapsed) });
+    if (progress) {
+      recordStageAverage(progress.tracker.averages, name, elapsed);
+      progress.tracker.completedStages += 1;
+    }
     if (config.verbose) {
       console.log(`    [stage] ${name}: ok (${elapsed.toFixed(1)}s)`);
     }
@@ -149,6 +202,7 @@ export async function runCase(config: RegressionConfig, caseDef: CaseDefinition)
       shopifyInterval,
       "shopify_readback",
       config.verbose,
+      (elapsed) => printProgress("shopify_readback", elapsed),
     );
     stageDone("shopify_readback", readback.elapsed);
 
@@ -221,12 +275,7 @@ export async function runCase(config: RegressionConfig, caseDef: CaseDefinition)
         checkAllocation(lastItems); // raises the detailed error
       }
 
-      if (config.verbose) {
-        console.log(
-          `    [poll] orders_table+allocation: waiting... (${elapsed.toFixed(0)}s) ` +
-            `orders=${ordersDone ? "done" : "pending"} allocation=${allocationDone ? "done" : "pending"}`,
-        );
-      }
+      printProgress(ordersDone ? "allocation" : "orders_table", elapsed);
       await sleep(resolveInterval(compositeAttempts, dynamoInterval) * 1000);
     }
 
@@ -242,6 +291,7 @@ export async function runCase(config: RegressionConfig, caseDef: CaseDefinition)
         shopifyInterval,
         "refund",
         config.verbose,
+        (elapsed) => printProgress("refund", elapsed),
       );
       stageDone("refund", refund.elapsed);
 
@@ -252,6 +302,7 @@ export async function runCase(config: RegressionConfig, caseDef: CaseDefinition)
         dynamoInterval,
         "cleanup",
         config.verbose,
+        (elapsed) => printProgress("cleanup", elapsed),
       );
       stageDone("cleanup", cleanup.elapsed);
     } else {
@@ -268,6 +319,7 @@ export async function runCase(config: RegressionConfig, caseDef: CaseDefinition)
       dynamoInterval,
       "inventory",
       config.verbose,
+      (elapsed) => printProgress("inventory", elapsed),
     );
     stageDone("inventory", inventory.elapsed);
 
@@ -296,8 +348,22 @@ export async function runCase(config: RegressionConfig, caseDef: CaseDefinition)
   return result;
 }
 
-/** Runs the selected cases (default: all) sequentially. */
-export async function run(config: RegressionConfig = defaultConfig()): Promise<RunSummary> {
+/**
+ * Runs the selected cases (default: all) sequentially.
+ *
+ * `tracker`/`repeatIndex`/`totalRepeats` carry the live-progress-line state
+ * across repeats (TAA-14 Phase A step 4) — the CLI builds one tracker for
+ * the whole `--repeat N` run and passes it into every call so "run %" and
+ * the rolling per-stage-average ETA span the entire run, not just one
+ * repeat. Omit them to run standalone (e.g. a single one-off run) — a
+ * tracker scoped to just this call's cases is built automatically.
+ */
+export async function run(
+  config: RegressionConfig = defaultConfig(),
+  tracker?: ProgressTracker,
+  repeatIndex = 0,
+  totalRepeats = 1,
+): Promise<RunSummary> {
   validateConfig(config);
   const allCases = buildCases(config.store);
   const names = config.caseNames?.length ? config.caseNames : Object.keys(allCases);
@@ -306,12 +372,29 @@ export async function run(config: RegressionConfig = defaultConfig()): Promise<R
     throw new Error(`unknown case(s): ${JSON.stringify(unknown)}. Available: ${JSON.stringify(Object.keys(allCases))}`);
   }
 
+  const resolvedTracker =
+    tracker ??
+    createProgressTracker(
+      buildRunPlan(names, (name) => Object.keys(allCases[name].expectedRefundSkus).length > 0, totalRepeats),
+      totalRepeats,
+      names.length,
+      Date.now(),
+    );
+
   const results: CaseResult[] = [];
-  for (const name of names) {
+  for (let caseIndex = 0; caseIndex < names.length; caseIndex += 1) {
+    const name = names[caseIndex];
     if (config.verbose) {
       console.log(`\n=== case: ${name} (${config.store}) ===`);
     }
-    results.push(await runCase(config, allCases[name]));
+    results.push(
+      await runCase(config, allCases[name], {
+        tracker: resolvedTracker,
+        repeatIndex,
+        caseIndex,
+        totalCases: names.length,
+      }),
+    );
   }
 
   return {

@@ -68,7 +68,7 @@ function sleep(ms) {
  * something to retry past (retries for transient network errors belong in
  * the clients, not here).
  */
-async function pollUntil(fetch, predicate, timeout, interval, stage, verbose = false) {
+async function pollUntil(fetch, predicate, timeout, interval, stage, verbose = false, onWaiting) {
     const start = Date.now();
     let attempts = 0;
     let value;
@@ -88,7 +88,12 @@ async function pollUntil(fetch, predicate, timeout, interval, stage, verbose = f
         }
         const sleepSeconds = resolveInterval(attempts, interval);
         if (verbose) {
-            console.log(`    [poll] ${stage}: waiting... (${elapsed.toFixed(0)}s / ${timeout.toFixed(0)}s, next in ${sleepSeconds.toFixed(1)}s)`);
+            if (onWaiting) {
+                onWaiting(elapsed, attempts);
+            }
+            else {
+                console.log(`    [poll] ${stage}: waiting... (${elapsed.toFixed(0)}s / ${timeout.toFixed(0)}s, next in ${sleepSeconds.toFixed(1)}s)`);
+            }
         }
         await sleep(sleepSeconds * 1000);
     }

@@ -97,6 +97,7 @@ export async function pollUntil<T>(
   interval: number | PollIntervalConfig,
   stage: string,
   verbose = false,
+  onWaiting?: (elapsed: number, attempts: number) => void,
 ): Promise<PollResult<T>> {
   const start = Date.now();
   let attempts = 0;
@@ -119,9 +120,13 @@ export async function pollUntil<T>(
     }
     const sleepSeconds = resolveInterval(attempts, interval);
     if (verbose) {
-      console.log(
-        `    [poll] ${stage}: waiting... (${elapsed.toFixed(0)}s / ${timeout.toFixed(0)}s, next in ${sleepSeconds.toFixed(1)}s)`,
-      );
+      if (onWaiting) {
+        onWaiting(elapsed, attempts);
+      } else {
+        console.log(
+          `    [poll] ${stage}: waiting... (${elapsed.toFixed(0)}s / ${timeout.toFixed(0)}s, next in ${sleepSeconds.toFixed(1)}s)`,
+        );
+      }
     }
     await sleep(sleepSeconds * 1000);
   }
