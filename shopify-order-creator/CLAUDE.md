@@ -82,6 +82,7 @@ Headless regression baseline proving order → allocation → shipments → inve
 **TAA-14 Phase A in progress (branch `taa-14-speedup`, started 2026-07-31, no-new-SKU quick wins only — Phase B is separately gated on new staging SKUs).**
 
 - ✅ **Step 1 — batch seed writes (2026-07-31):** `zeroEverywhere` (`clients/dynamo.ts`) now writes in bounded-concurrency batches of 25 (`chunk()` helper, offline-tested in `tests/dynamo.test.js`) instead of one `setStock` at a time; batches run sequentially so a failed write still throws immediately (strict-failure unchanged). Live-confirmed `--store US --cases single`: `seed_inventory` dropped to 1.5s (vs 4.7–8.8s historical for US single-case), rest of the run unaffected, PASS.
+- ✅ **Step 2 — adaptive poll interval (2026-07-31):** `pollUntil` (`polling.ts`) now ramps its sleep 1s→2s→3s→cap (the stage's configured `poll.interval`, still 5s) instead of sleeping a fixed 5s every tick, via a new `PollIntervalConfig` + pure `resolveInterval()` (offline-tested in `tests/polling.test.js`). Shopify-touching stages (`shopify_readback`, `refund` in `runner.ts`) keep a 2s floor even on the first poll to stay clear of rate limits. Per-stage timeout windows (`config.ts`) unchanged. Live-confirmed `--store US --cases single`: ramp visible in the log (`next in 1.0s/2.0s/3.0s/5.0s`), `allocation` landed in 16.3s, PASS.
 
 Track progress on [TAA-13](https://universalstore.atlassian.net/browse/TAA-13) — its checklist mirrors this list; tick items as they land.
 
