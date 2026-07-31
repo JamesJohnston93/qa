@@ -4,10 +4,13 @@
  * inputs (SKUs, seed plan) and its expected state in every system. The
  * runner turns these into orders and assertions.
  *
- * SKU isolation caveat: the staging variant pools are small (5 US / 4 PS
- * SKUs), so full per-case SKU isolation is not possible within one run.
- * Mitigations: cases run sequentially and each is polled to a terminal state
- * before the next starts; SKU assignments below minimize immediate reuse.
+ * SKU isolation (TAA-14 Phase B, 2026-07-31): US now has a 14-SKU pool
+ * (variants.ts), and the 6 cases below use 10 fully disjoint pool slots
+ * (single=0, multi=1, unique=2-4, split=5-6, undeliverable=7,
+ * partial_undeliverable=8-9, slots 10-13 unused headroom) — no two cases
+ * touch the same SKU, which is what makes the TAA-14 Phase B `--parallel`
+ * scheduler safe to run cases concurrently. PS is still on the old 4-SKU
+ * pool (blocked on a token scope fix) and reuses indices as before.
  *
  * NewStore SFS/OTC cases (7-8 in the design) are not wired into the runner:
  * order injection exists, but the NewStore read-back endpoint needs
@@ -93,15 +96,15 @@ export function buildCases(store: Store): Record<string, CaseDefinition> {
     {
       name: "split",
       description: "Each SKU stocked at a different store only -> one shipment per store",
-      skuQuantities: { [sku(0)]: 1, [sku(1)]: 1 },
+      skuQuantities: { [sku(5)]: 1, [sku(6)]: 1 },
       seedPlan: {
-        [sku(0)]: { [primary]: TOP_UP },
-        [sku(1)]: { [secondary]: TOP_UP },
+        [sku(5)]: { [primary]: TOP_UP },
+        [sku(6)]: { [secondary]: TOP_UP },
       },
-      expectedAllocation: { [sku(0)]: pNum, [sku(1)]: sNum },
+      expectedAllocation: { [sku(5)]: pNum, [sku(6)]: sNum },
       expectedDecrements: {
-        [sku(0)]: { [primary]: 1 },
-        [sku(1)]: { [secondary]: 1 },
+        [sku(5)]: { [primary]: 1 },
+        [sku(6)]: { [secondary]: 1 },
       },
       expectedRefundSkus: {},
       cleanupSkus: [],
@@ -109,22 +112,22 @@ export function buildCases(store: Store): Record<string, CaseDefinition> {
     {
       name: "undeliverable",
       description: "Zero stock everywhere -> UNDELIVERABLE, Shopify refund, rows removed from both AWS tables",
-      skuQuantities: { [sku(2)]: 1 },
+      skuQuantities: { [sku(7)]: 1 },
       seedPlan: {}, // zeroing everywhere IS the seed
-      expectedAllocation: { [sku(2)]: UNDELIVERABLE },
-      expectedDecrements: { [sku(2)]: {} }, // nothing to decrement
-      expectedRefundSkus: { [sku(2)]: 1 },
-      cleanupSkus: [sku(2)],
+      expectedAllocation: { [sku(7)]: UNDELIVERABLE },
+      expectedDecrements: { [sku(7)]: {} }, // nothing to decrement
+      expectedRefundSkus: { [sku(7)]: 1 },
+      cleanupSkus: [sku(7)],
     },
     {
       name: "partial_undeliverable",
       description: "One SKU stocked, one zero everywhere -> mixed: allocated shipment + refunded undeliverable",
-      skuQuantities: { [sku(3)]: 1, [sku(1)]: 1 },
-      seedPlan: { [sku(3)]: { [primary]: TOP_UP } }, // sku(1) stays zeroed everywhere
-      expectedAllocation: { [sku(3)]: pNum, [sku(1)]: UNDELIVERABLE },
-      expectedDecrements: { [sku(3)]: { [primary]: 1 } },
-      expectedRefundSkus: { [sku(1)]: 1 },
-      cleanupSkus: [sku(1)],
+      skuQuantities: { [sku(8)]: 1, [sku(9)]: 1 },
+      seedPlan: { [sku(8)]: { [primary]: TOP_UP } }, // sku(9) stays zeroed everywhere
+      expectedAllocation: { [sku(8)]: pNum, [sku(9)]: UNDELIVERABLE },
+      expectedDecrements: { [sku(8)]: { [primary]: 1 } },
+      expectedRefundSkus: { [sku(9)]: 1 },
+      cleanupSkus: [sku(9)],
     },
   ];
 
