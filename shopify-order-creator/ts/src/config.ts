@@ -104,6 +104,12 @@ export interface RegressionConfig {
   help?: boolean;
   listCases?: boolean;
 
+  // TAA-14 Phase B: SKU-disjoint parallel case execution, off by default.
+  // Repeats always stay serial regardless of this flag (see cli.ts) — only
+  // the cases within one repeat can run concurrently.
+  parallel: boolean;
+  parallelConcurrency: number; // cap on simultaneous cases within a wave
+
   // AWS
   awsRegion: string;
   awsProfile: string;
@@ -122,6 +128,8 @@ export function defaultConfig(): RegressionConfig {
     verbose: true,
     help: false,
     listCases: false,
+    parallel: false,
+    parallelConcurrency: 4, // keep in sync with scheduler.ts's DEFAULT_PARALLEL_CONCURRENCY (not imported here to avoid a config<->scheduler<->baselineCases import cycle)
     awsRegion: process.env.AWS_REGION ?? "ap-southeast-2",
     awsProfile: process.env.AWS_PROFILE ?? "staging",
     inventoryTable: "staging-inventory-v2",
@@ -141,5 +149,8 @@ export function validateConfig(config: RegressionConfig): void {
   }
   if (config.repeat < 1) {
     throw new Error("repeat must be >= 1");
+  }
+  if (config.parallelConcurrency < 1) {
+    throw new Error("parallelConcurrency must be >= 1");
   }
 }

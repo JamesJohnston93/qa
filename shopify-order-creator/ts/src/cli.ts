@@ -14,6 +14,8 @@ Options:
   --report-dir <path>     Output directory for reports (default: ./reports)
   --quiet                 Disable verbose output in the run summary
   --list-cases            Print the available baseline cases and exit
+  --parallel              Run SKU-disjoint cases concurrently (default: off, sequential)
+  --concurrency <n>       Max simultaneous cases within a wave under --parallel (default: 4)
   --help, -h              Show this help text
 `);
 }
@@ -46,6 +48,11 @@ export function parseArgs(argv: string[]): RegressionConfig {
       config.help = true;
     } else if (argument === "--list-cases") {
       config.listCases = true;
+    } else if (argument === "--parallel") {
+      config.parallel = true;
+    } else if (argument === "--concurrency" && argv[index + 1]) {
+      config.parallelConcurrency = Number(argv[index + 1]);
+      index += 1;
     }
   }
   return config;

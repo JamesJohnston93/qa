@@ -10,6 +10,18 @@ exports.US_VARIANTS = {
     "33006246": "gid://shopify/ProductVariant/51764543422737",
     "33660301": "gid://shopify/ProductVariant/51764570456337",
     "33413679": "gid://shopify/ProductVariant/51764606599441",
+    // TAA-14 Phase B: 9 more from the resolved staging pool (sku-lists/us-skus.json),
+    // bringing US to 14 total — enough for full per-case disjoint SKU assignment
+    // (10 needed) plus headroom.
+    "33898889": "gid://shopify/ProductVariant/51753448866065",
+    "33992457": "gid://shopify/ProductVariant/51753443918097",
+    "33788579": "gid://shopify/ProductVariant/51763697942801",
+    "34023587": "gid://shopify/ProductVariant/51817894150417",
+    "33946269": "gid://shopify/ProductVariant/51753253339409",
+    "33837352": "gid://shopify/ProductVariant/51764169408785",
+    "33773452": "gid://shopify/ProductVariant/51760213524753",
+    "33819099": "gid://shopify/ProductVariant/51763743752465",
+    "33775371": "gid://shopify/ProductVariant/51754156949777",
 };
 exports.PS_VARIANTS = {
     "33203669": "gid://shopify/ProductVariant/50773867888932",
@@ -31,7 +43,22 @@ function variantsFor(store) {
  * the numerically-smallest key, instead of the first-declared "32625134"),
  * breaking parity with the Python reference's case-to-SKU assignment.
  */
-exports.US_SKU_ORDER = ["32625134", "32357875", "33006246", "33660301", "33413679"];
+exports.US_SKU_ORDER = [
+    "32625134",
+    "32357875",
+    "33006246",
+    "33660301",
+    "33413679",
+    "33898889",
+    "33992457",
+    "33788579",
+    "34023587",
+    "33946269",
+    "33837352",
+    "33773452",
+    "33819099",
+    "33775371",
+];
 exports.PS_SKU_ORDER = ["33203669", "33801421", "34012956", "33487854"];
 function skuPoolFor(store) {
     return store === "US" ? exports.US_SKU_ORDER : exports.PS_SKU_ORDER;

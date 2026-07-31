@@ -8,6 +8,7 @@
 
 import { defaultConfig, validateConfig, type RegressionConfig } from "./config";
 import { buildCases, type CaseDefinition } from "./cases/baselineCases";
+import { buildWaves, runBounded } from "./scheduler";
 import { prepareInventory, placeOrder } from "./flows/orderFlow";
 import { DynamoClient } from "./clients/dynamo";
 import { ShopifyClient } from "./clients/shopify";
@@ -381,25 +382,71 @@ export async function run(
       Date.now(),
     );
 
-  const results: CaseResult[] = [];
-  for (let caseIndex = 0; caseIndex < names.length; caseIndex += 1) {
-    const name = names[caseIndex];
-    if (config.verbose) {
-      console.log(`\n=== case: ${name} (${config.store}) ===`);
-    }
-    results.push(
-      await runCase(config, allCases[name], {
-        tracker: resolvedTracker,
-        repeatIndex,
-        caseIndex,
-        totalCases: names.length,
-      }),
-    );
-  }
+  const results: CaseResult[] = config.parallel
+    ? await runCasesInWaves(config, names, allCases, resolvedTracker, repeatIndex)
+    : await runCasesSequentially(config, names, allCases, resolvedTracker, repeatIndex);
 
   return {
     store: config.store,
     cases: results,
     passed: results.every((r) => r.passed),
   };
+}
+
+async function runCasesSequentially(
+  config: RegressionConfig,
+  names: string[],
+  allCases: Record<string, CaseDefinition>,
+  tracker: ProgressTracker,
+  repeatIndex: number,
+): Promise<CaseResult[]> {
+  const results: CaseResult[] = [];
+  for (let caseIndex = 0; caseIndex < names.length; caseIndex += 1) {
+    const name = names[caseIndex];
+    if (config.verbose) {
+      console.log(`\n=== case: ${name} (${config.store}) ===`);
+    }
+    results.push(await runCase(config, allCases[name], { tracker, repeatIndex, caseIndex, totalCases: names.length }));
+  }
+  return results;
+}
+
+/**
+ * TAA-14 Phase B step 3: runs cases in SKU-disjoint waves, each wave bounded
+ * to config.parallelConcurrency simultaneous cases. Repeats are NOT handled
+ * here — the caller (cli.ts) keeps repeats serial by calling run() once per
+ * repeat; this only parallelizes the cases *within* one repeat.
+ */
+async function runCasesInWaves(
+  config: RegressionConfig,
+  names: string[],
+  allCases: Record<string, CaseDefinition>,
+  tracker: ProgressTracker,
+  repeatIndex: number,
+): Promise<CaseResult[]> {
+  const caseDefs = names.map((name) => allCases[name]);
+  const waves = buildWaves(caseDefs);
+  if (config.verbose) {
+    console.log(
+      `\n=== parallel run: ${names.length} case(s) in ${waves.length} wave(s), concurrency cap ${config.parallelConcurrency} ===`,
+    );
+  }
+
+  const resultByName = new Map<string, CaseResult>();
+  for (const [waveIndex, wave] of waves.entries()) {
+    if (config.verbose) {
+      console.log(`--- wave ${waveIndex + 1}/${waves.length}: ${wave.map((c) => c.name).join(", ")} ---`);
+    }
+    const waveResults = await runBounded(wave, config.parallelConcurrency, (caseDef) =>
+      runCase(config, caseDef, {
+        tracker,
+        repeatIndex,
+        caseIndex: names.indexOf(caseDef.name),
+        totalCases: names.length,
+      }),
+    );
+    waveResults.forEach((result) => resultByName.set(result.case, result));
+  }
+
+  return names.map((name) => resultByName.get(name)!);
 }

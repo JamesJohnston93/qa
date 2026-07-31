@@ -44,6 +44,7 @@ exports.runCase = runCase;
 exports.run = run;
 const config_1 = require("./config");
 const baselineCases_1 = require("./cases/baselineCases");
+const scheduler_1 = require("./scheduler");
 const orderFlow_1 = require("./flows/orderFlow");
 const dynamo_1 = require("./clients/dynamo");
 const shopify_1 = require("./clients/shopify");
@@ -291,22 +292,50 @@ async function run(config = (0, config_1.defaultConfig)(), tracker, repeatIndex 
     }
     const resolvedTracker = tracker ??
         (0, progress_1.createProgressTracker)((0, progress_1.buildRunPlan)(names, (name) => Object.keys(allCases[name].expectedRefundSkus).length > 0, totalRepeats), totalRepeats, names.length, Date.now());
+    const results = config.parallel
+        ? await runCasesInWaves(config, names, allCases, resolvedTracker, repeatIndex)
+        : await runCasesSequentially(config, names, allCases, resolvedTracker, repeatIndex);
+    return {
+        store: config.store,
+        cases: results,
+        passed: results.every((r) => r.passed),
+    };
+}
+async function runCasesSequentially(config, names, allCases, tracker, repeatIndex) {
     const results = [];
     for (let caseIndex = 0; caseIndex < names.length; caseIndex += 1) {
         const name = names[caseIndex];
         if (config.verbose) {
             console.log(`\n=== case: ${name} (${config.store}) ===`);
         }
-        results.push(await runCase(config, allCases[name], {
-            tracker: resolvedTracker,
+        results.push(await runCase(config, allCases[name], { tracker, repeatIndex, caseIndex, totalCases: names.length }));
+    }
+    return results;
+}
+/**
+ * TAA-14 Phase B step 3: runs cases in SKU-disjoint waves, each wave bounded
+ * to config.parallelConcurrency simultaneous cases. Repeats are NOT handled
+ * here — the caller (cli.ts) keeps repeats serial by calling run() once per
+ * repeat; this only parallelizes the cases *within* one repeat.
+ */
+async function runCasesInWaves(config, names, allCases, tracker, repeatIndex) {
+    const caseDefs = names.map((name) => allCases[name]);
+    const waves = (0, scheduler_1.buildWaves)(caseDefs);
+    if (config.verbose) {
+        console.log(`\n=== parallel run: ${names.length} case(s) in ${waves.length} wave(s), concurrency cap ${config.parallelConcurrency} ===`);
+    }
+    const resultByName = new Map();
+    for (const [waveIndex, wave] of waves.entries()) {
+        if (config.verbose) {
+            console.log(`--- wave ${waveIndex + 1}/${waves.length}: ${wave.map((c) => c.name).join(", ")} ---`);
+        }
+        const waveResults = await (0, scheduler_1.runBounded)(wave, config.parallelConcurrency, (caseDef) => runCase(config, caseDef, {
+            tracker,
             repeatIndex,
-            caseIndex,
+            caseIndex: names.indexOf(caseDef.name),
             totalCases: names.length,
         }));
+        waveResults.forEach((result) => resultByName.set(result.case, result));
     }
-    return {
-        store: config.store,
-        cases: results,
-        passed: results.every((r) => r.passed),
-    };
+    return names.map((name) => resultByName.get(name));
 }
