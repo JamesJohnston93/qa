@@ -41,20 +41,26 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.runCase = runCase;
+exports.runNewStoreCase = runNewStoreCase;
 exports.run = run;
 const config_1 = require("./config");
 const baselineCases_1 = require("./cases/baselineCases");
+const newstoreCases_1 = require("./cases/newstoreCases");
 const orderFlow_1 = require("./flows/orderFlow");
+const newstoreOrders_1 = require("./flows/newstoreOrders");
 const dynamo_1 = require("./clients/dynamo");
 const shopify_1 = require("./clients/shopify");
+const newstore_1 = require("./clients/newstore");
 const dynamoReader_1 = require("./readers/dynamoReader");
 const shopifyReader = __importStar(require("./readers/shopifyReader"));
+const newstoreReader = __importStar(require("./readers/newstoreReader"));
 const polling_1 = require("./polling");
 const index_1 = require("./verify/index");
 const orders_1 = require("./verify/orders");
 const shipments_1 = require("./verify/shipments");
 const refunds_1 = require("./verify/refunds");
 const inventory_1 = require("./verify/inventory");
+const newstore_2 = require("./verify/newstore");
 /**
  * Polls until verifyFn(value) stops throwing VerificationError. On timeout,
  * re-throws the final VerificationError (full evidence) rather than a bare
@@ -85,6 +91,27 @@ async function pollVerify(fetch, verifyFn, timeout, interval, stage, verbose) {
 }
 function round(value) {
     return Number(value.toFixed(1));
+}
+/** Converts a thrown error into the report's ErrorDetail shape (shared by every case runner). */
+function describeError(error) {
+    if (error instanceof index_1.VerificationError) {
+        return error.toDict();
+    }
+    if (error instanceof polling_1.StageTimeout) {
+        return {
+            check: `timeout.${error.stage}`,
+            expected: `state within ${error.timeout.toFixed(0)}s`,
+            actual: JSON.stringify(error.lastValue),
+            detail: "",
+        };
+    }
+    const err = error;
+    return {
+        check: "unexpected_error",
+        expected: "",
+        actual: `${err.name ?? "Error"}: ${err.message}`,
+        detail: err.stack ? err.stack.split("\n").slice(0, 5).join("\n") : "",
+    };
 }
 /** Executes one CaseDefinition. Returns a result (never throws). */
 async function runCase(config, caseDef) {
@@ -154,44 +181,74 @@ async function runCase(config, caseDef) {
         result.passed = true;
     }
     catch (error) {
-        if (error instanceof index_1.VerificationError) {
-            result.error = error.toDict();
-        }
-        else if (error instanceof polling_1.StageTimeout) {
-            result.error = {
-                check: `timeout.${error.stage}`,
-                expected: `state within ${error.timeout.toFixed(0)}s`,
-                actual: JSON.stringify(error.lastValue),
-                detail: "",
-            };
-        }
-        else {
-            const err = error;
-            result.error = {
-                check: "unexpected_error",
-                expected: "",
-                actual: `${err.name ?? "Error"}: ${err.message}`,
-                detail: err.stack ? err.stack.split("\n").slice(0, 5).join("\n") : "",
-            };
-        }
+        result.error = describeError(error);
     }
     return result;
 }
-/** Runs the selected cases (default: all) sequentially. */
+/**
+ * Executes one NewStore SFS/OTC injection case (design doc cases 7-8).
+ * Unlike runCase, there's no Shopify order or Dynamo allocation to seed/poll
+ * — the whole round trip is inject -> read back -> confirm SKUs/quantities.
+ * `orderId`/`orderName` are repurposed for the NewStore order UUID and
+ * external_id respectively, so reports/diffing (report.ts) need no changes.
+ */
+async function runNewStoreCase(config, caseDef) {
+    const result = {
+        case: caseDef.name,
+        store: config.store,
+        description: caseDef.description,
+        passed: false,
+        orderId: "",
+        orderName: "",
+        stages: [],
+        error: null,
+    };
+    const stageDone = (name, elapsed) => {
+        result.stages.push({ name, elapsed: round(elapsed) });
+        if (config.verbose) {
+            console.log(`    [stage] ${name}: ok (${elapsed.toFixed(1)}s)`);
+        }
+    };
+    const poll = config.poll;
+    const inject = caseDef.orderType === "SFS" ? newstoreOrders_1.injectSfsOrder : newstoreOrders_1.injectOtcOrder;
+    try {
+        // --- 1. Inject the order into NewStore staging --------------------------
+        let t0 = Date.now();
+        const injected = await inject(config.store, Object.keys(caseDef.skuQuantities));
+        result.orderName = injected.externalId;
+        const response = injected.response;
+        result.orderId = typeof response.id === "string" ? response.id : "";
+        stageDone("inject", (Date.now() - t0) / 1000);
+        // --- 2. Read back via GET /v0/d/external_orders/{external_id} ----------
+        const newstore = new newstore_1.NewStoreClient();
+        const readback = await pollVerify(() => newstoreReader.getOrderByExternalId(newstore, injected.externalId), (snap) => (0, newstore_2.assertNewStoreOrder)(snap, caseDef.skuQuantities, injected.externalId), poll.newstoreReadback, poll.newstoreInterval, "newstore_readback", config.verbose);
+        stageDone("newstore_readback", readback.elapsed);
+        result.passed = true;
+    }
+    catch (error) {
+        result.error = describeError(error);
+    }
+    return result;
+}
+/** Runs the selected cases (default: all baseline + NewStore cases) sequentially. */
 async function run(config = (0, config_1.defaultConfig)()) {
     (0, config_1.validateConfig)(config);
     const allCases = (0, baselineCases_1.buildCases)(config.store);
-    const names = config.caseNames?.length ? config.caseNames : Object.keys(allCases);
-    const unknown = names.filter((name) => !(name in allCases));
+    const allNewStoreCases = (0, newstoreCases_1.buildNewStoreCases)(config.store);
+    const names = config.caseNames?.length
+        ? config.caseNames
+        : [...Object.keys(allCases), ...Object.keys(allNewStoreCases)];
+    const unknown = names.filter((name) => !(name in allCases) && !(name in allNewStoreCases));
     if (unknown.length > 0) {
-        throw new Error(`unknown case(s): ${JSON.stringify(unknown)}. Available: ${JSON.stringify(Object.keys(allCases))}`);
+        const available = [...Object.keys(allCases), ...Object.keys(allNewStoreCases)];
+        throw new Error(`unknown case(s): ${JSON.stringify(unknown)}. Available: ${JSON.stringify(available)}`);
     }
     const results = [];
     for (const name of names) {
         if (config.verbose) {
             console.log(`\n=== case: ${name} (${config.store}) ===`);
         }
-        results.push(await runCase(config, allCases[name]));
+        results.push(name in allCases ? await runCase(config, allCases[name]) : await runNewStoreCase(config, allNewStoreCases[name]));
     }
     return {
         store: config.store,

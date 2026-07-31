@@ -1,6 +1,7 @@
 import { run, type RunSummary } from "./runner";
 import { writeReports } from "./report";
 import { buildCases } from "./cases/baselineCases";
+import { buildNewStoreCases } from "./cases/newstoreCases";
 import { defaultConfig, validateConfig, type RegressionConfig, type Store } from "./config";
 
 export function printHelp(): void {
@@ -8,17 +9,20 @@ export function printHelp(): void {
 
 Options:
   --store <US|PS>         Target store (default: US)
-  --cases <name[,name]>   Comma-separated case names (single,multi,split,undeliverable)
+  --cases <name[,name]>   Comma-separated case names (single,multi,split,undeliverable,ns_sfs,ns_otc)
   --repeat <n>            Number of repeats (default: 1)
   --report-dir <path>     Output directory for reports (default: ./reports)
   --quiet                 Disable verbose output in the run summary
-  --list-cases            Print the available baseline cases and exit
+  --list-cases            Print the available cases and exit
   --help, -h              Show this help text
 `);
 }
 
 export function printCases(store: Store = "US"): void {
   for (const entry of Object.values(buildCases(store))) {
+    console.log(`- ${entry.name}: ${entry.description}`);
+  }
+  for (const entry of Object.values(buildNewStoreCases(store))) {
     console.log(`- ${entry.name}: ${entry.description}`);
   }
 }

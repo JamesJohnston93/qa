@@ -49,6 +49,8 @@ exports.DEFAULT_POLL_WINDOWS = {
     refund: 90,
     cleanup: 120,
     inventory: 60,
+    newstoreReadback: 30,
+    newstoreInterval: 2,
 };
 function defaultConfig() {
     return {

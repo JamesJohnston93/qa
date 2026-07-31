@@ -83,6 +83,14 @@ export interface PollWindows {
   refund: number; // undeliverable -> Shopify refund
   cleanup: number; // refund -> rows removed from AWS tables
   inventory: number; // allocation -> inventory decrement
+  /**
+   * NewStore injection -> GET /v0/d/external_orders/{external_id} read-back
+   * (NS cases 7-8, TAA-17 step 3). Confirmed live propagation ~2s (2026-07-22)
+   * — far faster than the Shopify/Dynamo stages above, so this gets its own
+   * short window/interval rather than reusing theirs.
+   */
+  newstoreReadback: number;
+  newstoreInterval: number;
 }
 
 export const DEFAULT_POLL_WINDOWS: PollWindows = {
@@ -93,6 +101,8 @@ export const DEFAULT_POLL_WINDOWS: PollWindows = {
   refund: 90,
   cleanup: 120,
   inventory: 60,
+  newstoreReadback: 30,
+  newstoreInterval: 2,
 };
 
 export interface RegressionConfig {

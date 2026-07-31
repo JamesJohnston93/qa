@@ -7,22 +7,26 @@ exports.runCli = runCli;
 const runner_1 = require("./runner");
 const report_1 = require("./report");
 const baselineCases_1 = require("./cases/baselineCases");
+const newstoreCases_1 = require("./cases/newstoreCases");
 const config_1 = require("./config");
 function printHelp() {
     console.log(`Usage: node dist/index.js [options]
 
 Options:
   --store <US|PS>         Target store (default: US)
-  --cases <name[,name]>   Comma-separated case names (single,multi,split,undeliverable)
+  --cases <name[,name]>   Comma-separated case names (single,multi,split,undeliverable,ns_sfs,ns_otc)
   --repeat <n>            Number of repeats (default: 1)
   --report-dir <path>     Output directory for reports (default: ./reports)
   --quiet                 Disable verbose output in the run summary
-  --list-cases            Print the available baseline cases and exit
+  --list-cases            Print the available cases and exit
   --help, -h              Show this help text
 `);
 }
 function printCases(store = "US") {
     for (const entry of Object.values((0, baselineCases_1.buildCases)(store))) {
+        console.log(`- ${entry.name}: ${entry.description}`);
+    }
+    for (const entry of Object.values((0, newstoreCases_1.buildNewStoreCases)(store))) {
         console.log(`- ${entry.name}: ${entry.description}`);
     }
 }
