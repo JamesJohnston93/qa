@@ -1,15 +1,15 @@
 # QA Order Tool — shopify-order-creator
 
-Interactive CLI (Python) + TypeScript regression baseline for placing test orders on Universal Store / Perfect Stranger **staging** and verifying omni-channel alignment across Shopify, AWS (DynamoDB), and NewStore.
+TypeScript CLI + regression harness (`ts/`) for placing test orders on Universal Store / Perfect Stranger **staging** and verifying omni-channel alignment across Shopify, AWS (DynamoDB), and NewStore. Two entry points from the same build: `node dist/index.js order ...` places one ad-hoc test order on demand (TAA-15); `node dist/index.js` with no subcommand runs the automated regression suite (TAA-13/14/17).
 
-**Owner:** JJ (james.johnston@universalstore.com.au). CLI originally by Jared Davis.
-**Tracking:** Jira project TAA (current build ticket: TAA-3). Docs: Confluence QD space → "QA Automation Tool" page tree — see `regression-package-design.md` and `scope-of-work-reworked.md` in this folder.
+**Owner:** JJ (james.johnston@universalstore.com.au). Tool originally by Jared Davis (as a Python CLI — see "TS rewrite complete" below).
+**Tracking:** Jira project TAA (current: TAA-15). Docs: Confluence QD space → "QA Automation Tool" page tree — see `regression-package-design.md` and `scope-of-work-reworked.md` in this folder, and `qa-order-cli-tool-documentation.md` for the `order` command's user-facing docs.
 
-## ⚠ CURRENT MISSION: FINISH THE TS REWRITE (Python not yet fully retired)
+## ✅ TS REWRITE COMPLETE (2026-08-04) — zero Python remains
 
-The regression **baseline** (Shopify order → allocation → shipments → inventory, cases 1–6) is done in TS and signed off (TAA-13, green US+PS at `--repeat 3`). **But the rewrite is NOT complete** — several pieces still exist only in Python and are genuinely in use. The goal now is to port the rest so **all Python under `shopify-order-creator/` can be deleted**. Do not delete any Python until its TS replacement exists and is verified.
+The tool started as an interactive Python CLI (`main.py` + 6 supporting modules) and has been fully ported to TypeScript in three overlapping efforts: the automated regression baseline (TAA-13), NewStore SFS/OTC support + receipts (TAA-17), and the ad-hoc order-placement command that replaced the Python CLI's daily-use path (TAA-15). `find shopify-order-creator -name '*.py'` returns nothing. See "TAA-15 step 3 sign-off" below for the retirement details, and "Definition of rewrite complete" for what was required to get here. The sections immediately below are kept as the historical record of that port — genuinely useful context (what broke, what was decided and why) for anyone extending the TS harness, not a live task list.
 
-### What is still Python-only (must be ported before Python can go)
+### What was ported (historical — the rewrite is done)
 
 1. ~~**NewStore client — `newstore_client.py`** → `ts/src/clients/newstore.ts`~~ — **done 2026-07-22 (TAA-17 step 1).** Real OAuth2 client-credentials flow (Keycloak, `id.p.newstore.net`), token cache with pre-expiry refresh (30s buffer), retry on network/5xx (2s/4s backoff, 3 tries), raises immediately on 4xx with the response body. 5 offline tests (`tests/newstore.test.js`: token caching, token refresh near expiry, 5xx-then-success, 4xx no-retry, retries-exhausted). Confirmed live: a real token fetch against staging Keycloak returned a valid JWT. `newstore_client.py` can now be `git rm`'d once injection (`newstore_orders.py`) ports too — kept for now since the port isn't finished.
 2. ~~**NewStore order injection — `newstore_orders.py`** → new `ts/src/flows/newstoreOrders.ts`~~ — **done 2026-07-31 (TAA-17 step 2).** SFS + OTC payload builders ported faithfully (GST = price/11 tax-included, SFS charges 9.99 shipping, OTC preconfirmed/fulfilled with store-address shipping and no shipping charge), real prices via a new `ShopifyClient.fetchVariantPrices` (nodes batch query) — strict, no `$1.00` fallback for an unpriceable SKU (hard failure instead, per the "no fallbacks" rule). External IDs are collision-free (`QA{SFS|OTC}_{timestamp}_{random}`) — `order_counter.json`'s sequential-counter scheme was **not** ported at all; its confirmed bug (a reused id silently returns an existing unrelated order) made it a non-starter, not just a concurrency risk. 11 offline tests (`tests/newstoreOrders.test.js`: payload shape SFS vs OTC, GST calc, totals incl. duplicate SKUs, external-id uniqueness/format, strict price-lookup failures) — `npm run build` + `npm test` green (51/51). **Confirmed live (US, staging):** one real SFS injection and one real OTC injection via `POST /v0/d/fulfill_order`, both returned real NewStore order UUIDs (SFS `bab24823-5bcc-5924-98c4-8526a845858b`, OTC `cc37529e-6f6a-5d67-aa9b-adcddcf4096c`) plus per-item ids — no fallback/synthetic data path was exercised. `newstore_orders.py` is kept for now (not yet `git rm`'d) — per JJ's instruction, deletion of ported Python waits until read-back (step 3) also lands.
@@ -19,8 +19,8 @@ The regression **baseline** (Shopify order → allocation → shipments → inve
 4. ~~**Receipt generation — `receipt_service.py`** → decide first: port to TS, or drop it~~ — **decision: PORT (2026-07-31, per JJ).** Done as `ts/src/flows/receipts.ts`. Standalone utility, **not** wired into the automated `ns_sfs`/`ns_otc` regression cases — those stay side-effect-free on every run/repeat (per JJ); this is called on demand, e.g. from the future operator surface (TAA-15). Kept **non-fatal by design** like the Python original (a render failure falls back to a text-only order note rather than throwing) — deliberately not held to this harness's usual strict-by-default rule, since a receipt decorates an already-successful order rather than checking correctness. Template-id/sample-data caching is instance-scoped (`ReceiptService` class), not a module global.
    Fixed three stale/hardcoded values while porting (gotcha #5 below plus one more found along the way): shipping was hardcoded `10.0` instead of the real `9.99` charged; `store_name` was hardcoded `"Universal Store"` even for Perfect Stranger orders; `customer_name` was hardcoded to the old `"Jared Davis"` identity, stale since that rename landed everywhere else in the codebase 2026-07-22 — this module was missed at the time.
    12 offline tests (template matching/caching, catalog lookup, render-data shape incl. the three fixed values, full success/render-failure/note-failure paths) — `npm run build` + `npm test` green (80/80). **Live-confirmed (2026-07-31, US):** fresh SFS injection (`QASFS_1785476635884_3d5e6dacff`) → real PDF rendered (21KB, valid PDF 1.7) and saved locally, real order note posted with the PDF's permanent link. `receipts/*.pdf` is gitignored (existing root `*.pdf` rule already covered it).
-5. **Interactive CLI — `main.py`** (+ its Python-only deps `orders_processor.py`, `aws_inventory.py`, `graphql_scripts.py`, which the TS harness already replaced with its own clients) → this is the operator order-placement experience. Overlaps with **TAA-15** (operator UX rework, CLI-vs-GUI). Either fold main.py's replacement into TAA-15 or port a minimal TS command surface first. Decide and note here.
-   **Scope correction found 2026-07-31, while starting Python retirement:** `main.py` also directly imports and uses `newstore_orders` (brand switching, associate management, fallback-price config, `place_ns_orders` → `create_sfs_order`/`create_otc_order`) and `receipt_service.generate_and_attach_receipt` — transitively pulling in `newstore_client` too. Neither the original file-map table nor TAA-17's "out of scope" list called these three out as `main.py` dependencies (only `orders_processor.py`/`aws_inventory.py`/`graphql_scripts.py` were named) — that was an oversight. In reality **`newstore_client.py`, `newstore_orders.py`, and `receipt_service.py` cannot be deleted yet**, even though their TS replacements are built and live-verified (items 1, 2, 4 above): doing so would break `main.py`'s NS order-placement and receipt features right now. Full removal of these three is gated on TAA-15 the same as `orders_processor.py`/`aws_inventory.py`/`graphql_scripts.py` — not a separate, earlier milestone as the original retire-order plan assumed.
+5. ~~**Interactive CLI — `main.py`** (+ its Python-only deps `orders_processor.py`, `aws_inventory.py`, `graphql_scripts.py`, which the TS harness already replaced with its own clients)~~ — **done 2026-08-04 (TAA-15).** Ported as the minimal `order` subcommand (`ts/src/cli-order.ts`) — not the full operator-UX rework (settings menus, presets, stress-test, fire-and-verify, GUI stay deferred, see TAA-15's own ticket), just enough to cover `main.py`'s actual daily use: placing one ad-hoc test order on demand. See "TAA-15 step 1 + step 2 sign-off" and "TAA-15 step 3 sign-off" below for the full build/live-confirm/retirement record.
+   **Scope correction found 2026-07-31, while starting Python retirement:** `main.py` also directly imports and uses `newstore_orders` (brand switching, associate management, fallback-price config, `place_ns_orders` → `create_sfs_order`/`create_otc_order`) and `receipt_service.generate_and_attach_receipt` — transitively pulling in `newstore_client` too. Neither the original file-map table nor TAA-17's "out of scope" list called these three out as `main.py` dependencies (only `orders_processor.py`/`aws_inventory.py`/`graphql_scripts.py` were named) — that was an oversight. In reality **`newstore_client.py`, `newstore_orders.py`, and `receipt_service.py` cannot be deleted yet**, even though their TS replacements are built and live-verified (items 1, 2, 4 above): doing so would break `main.py`'s NS order-placement and receipt features right now. Full removal of these three is gated on TAA-15 the same as `orders_processor.py`/`aws_inventory.py`/`graphql_scripts.py` — not a separate, earlier milestone as the original retire-order plan assumed. (Resolved: all six removed together in the TAA-15 step 3 batch below.)
 
 ### Retire order (corrected 2026-07-31)
 
@@ -93,9 +93,35 @@ posted with the PDF link. Both confirmed live by JJ directly in Shopify
 admin / NewStore Manager. This clears the gate for step 3 (retiring the
 Python) below.
 
-### Definition of "rewrite complete"
+### TAA-15 step 3 sign-off (2026-08-04) — Python retired, rewrite complete
 
-No `.py` files remain under `shopify-order-creator/` (or only an intentionally-kept archive), the TS harness covers Shopify + AWS + NewStore end to end, and NS cases 7–8 pass live. Only then does the "remove all Python" cleanup happen.
+Confirmed nothing under `ts/` imports any Python module (only historical
+doc-comments like "ports orders_processor.py's..." reference the old
+filenames — no actual imports). `git rm`'d all seven remaining Python files:
+`main.py`, `orders_processor.py`, `aws_inventory.py`, `graphql_scripts.py`,
+`newstore_client.py`, `newstore_orders.py`, `receipt_service.py`. `find
+shopify-order-creator -name '*.py'` returns nothing.
+
+Docs updated: `requirements.txt` removed (no Python dependencies remain);
+`qa-order-cli-tool-documentation.md` rewritten to describe the `order`
+subcommand instead of the retired interactive menus, with an explicit "not
+yet ported" list (settings menu, presets, stress-test, associate switching,
+fire-and-verify, GUI — all later TAA-15 scope, not lost);
+`scope-of-work-reworked.md`'s stale "where it stands today" paragraph
+annotated with a status pointer back to this file rather than rewritten
+(kept as historical context for the scope it was written against). This
+file's "Stack & environment", "File map", "Known gotchas", and "Conventions
+for new work" sections below are updated accordingly.
+
+### Definition of "rewrite complete" — ✅ met 2026-08-04
+
+No `.py` files remain under `shopify-order-creator/` (confirmed above), the
+TS harness covers Shopify + AWS + NewStore end to end (regression baseline
++ NS cases 7–8 pass live, TAA-13/14/17), and the operator's daily-use path
+(ad-hoc order placement) is ported and live-confirmed (TAA-15 steps 1-2
+above). The full TAA-15 operator-UX rework (settings, presets, stress-test,
+fire-and-verify, GUI) remains open as later, separately-scoped work — it
+was never part of this definition.
 
 ---
 
@@ -182,15 +208,13 @@ Headless regression baseline proving order → allocation → shipments → inve
 
 Track progress on [TAA-13](https://universalstore.atlassian.net/browse/TAA-13) — its checklist mirrors this list; tick items as they land.
 
-Python-side changes already made: `draftOrderComplete` returns `{order_id, order_name, created_at}` (graphql_scripts + orders_processor); `ensure_stock`/`split_stock` accept `strict=True`.
-
 ## Stack & environment
 
 - **Staging only.** Shopify Admin GraphQL 2025-10: `universal-store-staging.myshopify.com` (US), `perfect-stranger-staging.myshopify.com` (PS).
 - **NewStore:** `universalstore-staging.p.newstore.net`, OAuth2 client-credentials via `id.p.newstore.net` (Keycloak). Order injection: `POST /v0/d/fulfill_order`.
 - **AWS:** region `ap-southeast-2`, boto3 named profile `staging` (`aws sso login --profile staging` when expired).
 - **Env vars (required at import):** `US_ACCESS_TOKEN`, `PS_ACCESS_TOKEN`, `NS_STAGING_CLIENT_ID`, `NS_STAGING_CLIENT_SECRET`. Optional: `AWS_REGION`, `AWS_PROFILE`, `NS_INVENTORY_STORE_KEY`.
-- Run CLI: `python main.py`. Python 3, deps in `requirements.txt` (pip).
+- Build once per checkout: `cd ts && npm install && npm run build`. Place an ad-hoc order: `node dist/index.js order --help` (see `qa-order-cli-tool-documentation.md`). Run the regression suite: `node dist/index.js --help`. No Python, no `requirements.txt` — the tool is 100% TypeScript (Node.js).
 
 ## DynamoDB tables (staging)
 
@@ -204,6 +228,19 @@ Allocator reads `ATP#<store>` rows per SKU; store with all SKUs = single shipmen
 
 ## File map
 
+Current (TS, `ts/src/`) — see `qa-order-cli-tool-documentation.md`'s own file-structure table for the `order`-command-relevant subset:
+
+| File | Role |
+| --- | --- |
+| `cli.ts` / `cli-order.ts` | Entry points — regression suite vs. ad-hoc `order` subcommand (dispatched in `index.ts`) |
+| `runner.ts` | Regression case execution — partitions `"pipeline"` vs `"newstore"` cases (see "Consolidation before TAA-15" above) |
+| `clients/shopify.ts`, `clients/dynamo.ts`, `clients/newstore.ts` | Shopify Admin GraphQL, DynamoDB, NewStore staging clients |
+| `flows/newstoreOrders.ts`, `flows/receipts.ts`, `flows/orderFlow.ts`, `flows/inventoryFlow.ts` | Order-placement/receipt orchestration reused by both entry points |
+| `cases/`, `readers/`, `verify/` | Regression-suite case definitions, read-back, and assertions |
+
+<details>
+<summary>Historical Python file map (removed 2026-08-04, TAA-15 — kept for archaeology, git history has the full source)</summary>
+
 | File | Role |
 | --- | --- |
 | `main.py` | CLI menus, customer pools, presets, Shopify order flow (`place_an_order`) — interactive, bypass for regression work |
@@ -214,23 +251,27 @@ Allocator reads `ATP#<store>` rows per SKU; store with all SKUs = single shipmen
 | `aws_inventory.py` | `get_stock` / `set_stock` / `ensure_stock` (top-up to 99) / `split_stock` (qty 1 across 4 ATP locations) |
 | `receipt_service.py` | PDF receipt via NS Template Service, attached as order note (all failures non-fatal by design) |
 
-## Known gotchas (from full code review, Jul 2026)
+</details>
 
-1. **Order IDs are discarded** — `complete_draft_order` returns None; `draftOrderComplete` GraphQL doesn't select `draftOrder { order { id name } }`. First fix for regression work.
-2. **Silent failures:** `ensure_stock`/`split_stock` swallow AWS errors and return `{}` (order proceeds anyway); `get_shopify_prices` silently skips unknown SKUs; NS price lookup falls back to $1.00. Regression code must treat all of these as hard failures (add `strict` mode; don't break CLI behaviour).
-3. **Import-time side effects:** `orders_processor` and `newstore_client` build clients at import (KeyError without env vars). Mutable module globals hold store/brand state — Shopify `STORE` and NewStore `BRAND` are separate toggles that can drift.
-4. **Shopify merges duplicate line items; DynamoDB/NewStore do not** — cross-system item-count assertions must account for this.
-5. `order_counter.json` isn't concurrency-safe. Receipt hardcodes shipping 10.0 vs 9.99 charged, and "Universal Store" name even for PS.
-6. Presets are built positionally from variant dicts — reordering the dicts silently changes preset contents.
+## Known gotchas (historical — found during the Jul 2026 Python code review, all since fixed/ported into the TS harness; kept because the *reasons* still explain why the TS side works the way it does)
+
+1. **Order IDs are discarded** — `complete_draft_order` returns None; `draftOrderComplete` GraphQL doesn't select `draftOrder { order { id name } }`. First fix for regression work. TS: `ShopifyClient.createDraftOrder` always returns `{orderId, orderName, createdAt}`.
+2. **Silent failures:** `ensure_stock`/`split_stock` swallow AWS errors and return `{}` (order proceeds anyway); `get_shopify_prices` silently skips unknown SKUs; NS price lookup falls back to $1.00. TS: every client throws on failure — no `strict` toggle needed, strict is the only mode.
+3. **Import-time side effects:** `orders_processor` and `newstore_client` build clients at import (KeyError without env vars). Mutable module globals hold store/brand state. TS: every client takes `store`/config as a constructor/call argument, never a module global; env vars are only read when a client method actually needs them.
+4. **Shopify merges duplicate line items; DynamoDB/NewStore do not** — cross-system item-count assertions must account for this. Still true in TS — `verify/orders.ts` and `cli-order.ts`'s NS SKU expansion both handle it explicitly.
+5. `order_counter.json` isn't concurrency-safe. TS: collision-free `QA{SFS|OTC}_{timestamp}_{random}` external IDs, no shared counter file. Receipt hardcoded shipping 10.0 vs 9.99 charged, and "Universal Store" name even for PS — both fixed in `flows/receipts.ts`.
+6. Presets are built positionally from variant dicts — reordering the dicts silently changes preset contents. No longer applicable — presets themselves aren't ported (deferred TAA-15 scope, see "Not yet ported" in `qa-order-cli-tool-documentation.md`).
 
 ## Conventions for new work
 
-- Regression package lives in `regression/` per the design doc layout (runner / cases / flows / readers / verify / polling / report / config). Headless: no `input()`, no module-global state; explicit config object.
-- Entry point target: `python -m regression [--cases ...] [--store US|PS] [--repeat N]`, non-zero exit on any failure.
-- Every creation call returns identifiers; every assertion failure reports expected-vs-actual from each system.
-- `--repeat N` diffs JSON results between identical runs — variance is a flagged inconsistency (race-condition signal).
-- Don't modify CLI behaviour; extend modules additively (e.g. `strict=` kwargs, extra GraphQL selections).
-- Update the changelog in Confluence "QA Order CLI — Tool Documentation" when CLI-facing behaviour changes; track build progress on TAA-3.
+- The TS harness (`ts/`) is the whole tool now — there is no Python to keep in sync with. Extend it directly.
+- Strict by default: every client throws on failure, no silent fallbacks or synthetic data. Only the receipt flow (`flows/receipts.ts`) is deliberately non-fatal, and that's a documented, narrow exception (a receipt decorates an already-successful order; it isn't a correctness check) — don't generalize it elsewhere.
+- No module-global state: config is an explicit object built by the caller (`config.ts`'s `RegressionConfig` for the regression suite, `cli-order.ts`'s `OrderCliConfig` for ad-hoc orders) and passed down — never a mutable module-level toggle.
+- Every creation call returns identifiers; every assertion failure reports expected-vs-actual from each system involved.
+- `--repeat N` (regression suite only) diffs JSON results between identical runs — variance is a flagged inconsistency (race-condition signal); don't break this contract when touching `runner.ts`/`report.ts`.
+- Prefer reuse over re-porting: the `order` command's build (TAA-15) added new capability to existing clients (e.g. `ShopifyClient.fetchPickupLocations`) rather than duplicating logic — follow that pattern for future ad-hoc-command capability.
+- `npm run build` (tsc) + `npm test` (`node --test tests/*.test.js`) must stay green — offline tests cover pure logic (arg parsing, payload shape, assertions); live staging runs are the separate, explicit confirm step for anything network-facing.
+- Update `qa-order-cli-tool-documentation.md`'s changelog when `order`-command-facing behaviour changes; update this file (`CLAUDE.md`) when harness-internal behaviour, decisions, or live-run findings change. Track build progress on the relevant TAA ticket (currently TAA-15's remaining scope).
 
 ## TypeScript rewrite handoff (Jul 17, 2026) — HISTORICAL, superseded by "TS state" above
 

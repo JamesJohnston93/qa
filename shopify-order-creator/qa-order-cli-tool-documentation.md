@@ -1,13 +1,15 @@
 # QA Order CLI — Tool Documentation
 
-An interactive command-line tool for placing test orders on the Universal Store / Perfect Stranger staging environments. Supports both **Shopify** (draft orders via Admin GraphQL API) and **NewStore** (Ship From Store and Over the Counter order injection). Automatically manages DynamoDB inventory before every order and generates a PDF sales receipt attached as an order note in NewStore Manager.
+A command-line tool for placing test orders on the Universal Store / Perfect Stranger staging environments. Supports both **Shopify** (draft orders via Admin GraphQL API) and **NewStore** (Ship From Store and Over the Counter order injection). Manages DynamoDB inventory before a Shopify order and generates a PDF sales receipt attached as an order note in NewStore Manager for NewStore orders.
 
 **Originally built by:** Jared Davis (jared.davis@universalstore.com.au)
 **Repo owner:** JJ (james.johnston@universalstore.com.au)
-**Location:** [JamesJohnston93/qa](https://github.com/JamesJohnston93/qa) → `shopify-order-creator/` *(moved Jul 2026 from UniversalStore/python-scripts; will move to an org repo later)*
-**Run with:** `python main.py`
+**Location:** [JamesJohnston93/qa](https://github.com/JamesJohnston93/qa) → `shopify-order-creator/`
+**Run with:** `node dist/index.js order [options]` (from `shopify-order-creator/ts/`, after `npm run build`)
 
-> **Related — automated regression harness:** this CLI is the *interactive* tool. The automated, headless verification of the same pipeline (order → allocation → shipments → inventory across Shopify, AWS, and NewStore) lives in the same repo under `shopify-order-creator/ts/` (TypeScript, active — see TAA-13) with a Python reference under `regression/`. See the "Regression Package Design" and "TS Rewrite Dev Doc" pages under QA Automation Tool.
+> **TypeScript rewrite complete (2026-08-04, TAA-15).** The tool is now 100% TypeScript — the original interactive Python CLI (`main.py` and its menus, presets, stress-test mode, and settings menu) has been retired. What replaced it is a minimal ad-hoc order-placement command (`order`), covering the tool's actual daily use: placing one custom test order on demand. It does not (yet) replicate every menu the Python CLI had — see "Not yet ported" below.
+
+> **Related — automated regression harness:** the same repo's `shopify-order-creator/ts/` also runs the automated, headless verification suite (order → allocation → shipments → inventory across Shopify, AWS, and NewStore — see TAA-13). `node dist/index.js` with no subcommand runs that regression suite; `node dist/index.js order ...` places one ad-hoc order. See the "Regression Package Design" and "TS Rewrite Dev Doc" pages under QA Automation Tool for the regression suite's own docs.
 
 ---
 
@@ -24,158 +26,106 @@ The following environment variables must be set before running the tool:
 
 AWS credentials are loaded from the `staging` named profile. Run `aws sso login --profile staging` if credentials have expired.
 
+Build once per checkout (or after pulling changes): `cd shopify-order-creator/ts && npm install && npm run build`.
+
 ---
 
-## Main Menu
-
-The tool opens to a top-level menu showing the active Shopify store and NewStore brand:
+## Placing a Shopify order
 
 ```
-  QA Order Tool
-
-  Shopify: US   NewStore: US (staging)
-  ────────────────────────────────────────────
-
-  1  Shopify orders
-  2  NewStore orders
-
-  s  Settings
-  q  Quit
+node dist/index.js order --store US --items 32625134x2,33006246x1
 ```
 
----
-
-## Shopify Orders
-
-Places draft orders via the Shopify Admin GraphQL API against the active store (US or PS). All orders use existing customers from the configured customer pool.
-
-### Order Modes
-
-| Option | Description |
-| --- | --- |
-| **Random orders** | Generates random line items within the configured min/max range (default 1–3 items) |
-| **Preset orders** | Choose from _single_ (1 item), _multi_ (3× same item), or _unique_ (3 different items) |
-| **Orders by SKU** | Type specific SKUs manually (comma-separated) |
-| **Stress test** | Creates new Shopify customers (`jared.davis+N@...`) and places orders for each |
-
-### Order Flow
-
-1. Build line items (random, preset, or manual)
-2. Update DynamoDB inventory (ensure stock or split shipment)
-3. `draftOrderCreate` — saves a draft in Shopify
-4. `draftOrderComplete` — finalises into a real paid order (now also returns the created order's id and name — used by the regression harness; no CLI behaviour change)
-
----
-
-## NewStore Orders
-
-Injects orders directly into the NewStore staging environment via the Order Injection API. Two order types are supported:
-
-| Type | Key | Description |
+| Flag | Description | Default |
 | --- | --- | --- |
-| **Ship From Store (SFS)** | `SHIPPING` | Standard shipped order; includes shipping cost in receipt total |
-| **Over the Counter (OTC)** | `IN_STORE_HANDOVER` | In-store handover order; no shipping cost |
+| `--store <US\|PS>` | Target store | `US` |
+| `--items <spec>` | `SKUxQTY,SKUxQTY,...` — a bare SKU implies quantity 1 | *(required)* |
+| `--seed <mode>` | Inventory seed mode — see below | `standard` |
+| `--delivery <spec>` | `rate:<exact shipping rate title>` or `pickup:<exact location name>` | first available shipping rate |
+| `--email <email>` | Override the default QA-automation customer email | per-store QA identity |
 
-### SKU Selection Modes
+### Inventory seed modes (`--seed`)
 
 | Mode | Description |
 | --- | --- |
-| **Random** | Picks random SKUs within the min/max line item range |
-| **Preset** | Choose from _single_, _multi_ (3× same), or _unique_ (3 different SKUs) |
-| **By SKU** | Manually enter comma-separated SKU codes; unknown SKUs warn but proceed |
+| `standard` | Tops up stock to 99 at the default location (`ATP#100`) if it's currently below 10. Use for most test orders. |
+| `split` | Sets qty=1 at each of `ATP#100`, `ATP#99`, `ATP#407`, and `ATP#640`. Forces the allocator to split the shipment across stores. |
+| `zero` | Zeroes stock everywhere for each ordered SKU — forces an `UNDELIVERABLE` outcome (Shopify refund, no shipment). |
+| `none` | Doesn't touch inventory at all — use when you've already seeded stock yourself, or don't care about the outcome. |
 
-### Inventory Modes
+> **Staging inventory note:** a SKU can have ~194 location rows in staging, not just the four ATP locations listed above, and aggregate locations (`ATP#INTERNATIONAL`, `ATP#STUDIO`, `ATP#ALL`) mirror stock asynchronously. `zero` zeroes every location row that exists, not just the four named ones.
 
-| Mode | Description |
-| --- | --- |
-| **Standard** | Tops up stock to 99 at a single ATP location (ATP#100). Use for most tests. |
-| **Split shipment** | Sets qty=1 at ATP#100, ATP#99, ATP#407, and ATP#640. Forces NewStore to route each item to a different fulfilment node — use to test split-shipment routing. |
+On success, prints the created order's Shopify name and GID immediately:
 
-> **Staging inventory note (Jul 2026 finding):** a SKU can have ~194 location rows in staging, not just the four listed above, and aggregate locations (`ATP#INTERNATIONAL`, `ATP#STUDIO`, `ATP#ALL`) mirror stock asynchronously. Fine for interactive use; matters if you're reasoning about exact stock states.
-
-### Order IDs
-
-NewStore orders are assigned sequential external IDs in the format `JD000000001`, `JD000000002`, etc. The counter is persisted to `order_counter.json` in the project directory and increments across runs. *(Not concurrency-safe — don't run two instances simultaneously.)*
+```
+Shopify order placed (US):
+  Order name: #9860
+  Order id:   gid://shopify/Order/7819764564241
+```
 
 ---
 
-## Receipt Generation
+## Placing a NewStore order
 
-After every NewStore order is placed, the tool automatically generates a PDF sales receipt and attaches it as an order note. This works around the fact that injected orders don't go through the NOM app checkout, so NewStore never creates a receipt natively.
+```
+node dist/index.js order --ns sfs --items 33006246x1
+```
 
-### Process
-
-1. **Catalog lookup** — fetches product name and EAN barcode for each SKU from the NewStore Customer API (`GET /v0/c/products/sku={sku}?locale=en-AU&shop=us-store`). Non-fatal — falls back to raw SKU if the lookup fails.
-2. **Template render** — renders the `sales_receipt` template to PDF via the NewStore Template Service (`POST /v0/d/templates/templates/{id}/render`). Uses the template's own sample data as a base, overlaid with real order values.
-3. **Local save** (optional) — downloads the PDF to `receipts/{external_id}.pdf` in the project directory. Controlled by the _Save receipts locally_ toggle in Settings.
-4. **Order note** — posts the permanent PDF link as a note on the order in NewStore Manager. Note text: `Sales Receipt: https://...`. Author shows as the active associate.
-
-### Technical Notes
-
-- Payment instrument uses `payment_method: "credit_card"` with `brand: "Cash"` — the template's native cash code path has a Jinja2 rendering bug that causes a 422 error, so this is the working workaround.
-- The QR code field is omitted from the render payload intentionally — the template expects a base64 PNG, not a URL string.
-- NewStore Manager notes are plain text only — no clickable hyperlinks are possible at the platform level.
-- Prices are GST-inclusive (10% VAT). Tax is back-calculated as `price / 11`.
-- Store name, address, and phone are fetched live from the NewStore locations API (`GET /v0/d/config/v1/ops/stores/{store_id}`) and cached per store ID for the session. On failure, the store ID string (e.g. `BRANCH_407`) is used as a fallback.
-- Known inconsistencies (accepted for now): receipt shows shipping $10.00 vs $9.99 actually charged, and "Universal Store" as store name even for PS orders.
-
----
-
-## Settings Menu
-
-Accessible from the main menu via **S**. All changes are session-only — restart the tool to reset to defaults.
-
-| Option | Setting | Default |
+| Flag | Description | Default |
 | --- | --- | --- |
-| 1 | Orders per customer (Shopify runs) | 10 |
-| 2 | Random item range (min – max line items) | 1 – 3 |
-| 3 | Stress test — number of new customers to create | 1 |
-| 4 | Switch Shopify store (US ↔ PS) | US |
-| 5 | Delivery method — pin a specific shipping rate or pickup location | First available |
-| 6 | Switch NewStore brand (US ↔ PS) | US |
-| 7 | Fallback item price — used when Shopify price lookup fails | $29.99 |
-| 8 | Inventory store key — DynamoDB location key for stock top-up | ATP#100 |
-| 9 | Active associate — choose from configured associates | Jared Davis |
-| 10 | Save receipts locally (On/Off toggle) | Off |
+| `--ns <sfs\|otc>` | Ship From Store or Over the Counter injection | *(required to enter NewStore mode)* |
+| `--store <US\|PS>` | Target brand | `US` |
+| `--items <spec>` | Same format as the Shopify command | *(required)* |
+| `--save-receipt` | Also download the generated receipt PDF locally | off |
 
-> Note: the Shopify store (option 4) and NewStore brand (option 6) are **separate toggles** — switching one does not switch the other. Keep them aligned when placing NS orders, since NS price lookups use the active Shopify store.
+`--email`, `--delivery`, and a non-default `--seed` are not accepted with `--ns` — NewStore orders use a fixed per-store QA customer identity and never touch Shopify shipping or staging inventory (a NewStore-injected order never touches Shopify or `staging-inventory-v2` at all).
+
+On success, prints the external ID and NewStore order UUID immediately, then attempts to attach a receipt (non-fatal — a receipt failure is logged but never blocks the order):
+
+```
+NewStore SFS order placed (US):
+  External ID: QASFS_1785818538240_6e9e1ee470
+  Order UUID:  703d37b8-91ef-509e-a3d6-ef40aaf47ad7
+    [receipt] Note posted (with PDF link)
+```
+
+### Receipt generation
+
+After a NewStore order is placed, a PDF sales receipt is automatically generated and attached as an order note. This works around the fact that injected orders don't go through the NOM app checkout, so NewStore never creates a receipt natively.
+
+1. **Catalog lookup** — fetches product name and EAN barcode for each SKU from the NewStore Customer API. Non-fatal — falls back to the raw SKU if the lookup fails.
+2. **Template render** — renders the `sales_receipt` template to PDF via the NewStore Template Service, using the template's own sample data as a base overlaid with real order values.
+3. **Local save** (optional, `--save-receipt`) — downloads the PDF to `receipts/{external_id}.pdf` in the project directory (gitignored).
+4. **Order note** — posts the permanent PDF link as a note on the order in NewStore Manager.
+
+Known accepted quirks: payment instrument uses `payment_method: "credit_card"` with `brand: "Cash"` (the template's native cash code path has a rendering bug); the QR code field is intentionally omitted (template expects a base64 PNG, not a URL string); NewStore Manager notes are plain text only, no clickable hyperlinks.
 
 ---
 
-## Associate Configuration
+## Not yet ported (deferred — later TAA-15 work)
 
-Associates are defined in `newstore_orders.py` in the `NS_ASSOCIATES` dict, mapping a display name to a NewStore associate UUID. The active associate is used as the note author on receipt notes posted to NewStore Manager.
+The original Python CLI's interactive menus covered more ground than the current `order` command. These are explicitly out of scope for now, not forgotten:
 
-To switch associate mid-session: Settings → option 9.
-
----
-
-## Brand / Store Switching
-
-| Platform | Brands | How to switch |
-| --- | --- | --- |
-| Shopify | US (Universal Store), PS (Perfect Stranger) | Settings → option 4 |
-| NewStore | US, PS | Settings → option 6 |
-
-Switching store also rebuilds the preset maps and customer pool for the new store automatically.
+- Settings menu (session-persisted delivery/associate/fallback-price preferences)
+- Presets (single/multi/unique) and random-order generation
+- Stress testing (bulk order runs across many new customers)
+- Associate switching for NewStore OTC orders (currently a fixed real associate account)
+- Fire-and-verify mode (running the regression harness's verification chain against an ad-hoc order)
+- Any GUI
 
 ---
 
 ## File Structure
 
-| File | Purpose |
+| Path | Purpose |
 | --- | --- |
-| `main.py` | CLI entry point, menus, Shopify order flow |
-| `newstore_orders.py` | NewStore order injection (SFS & OTC), price lookups, associate config |
-| `receipt_service.py` | Receipt PDF generation and order note posting |
-| `orders_processor.py` | Shopify GraphQL calls (draft orders, customers, shipping rates) |
-| `graphql_scripts.py` | GraphQL query/mutation strings |
-| `aws_inventory.py` | DynamoDB stock management (ensure_stock, split_stock; both accept `strict=True` for the regression harness — CLI behaviour unchanged) |
-| `newstore_client.py` | NewStore staging HTTP client (OAuth2, GET/POST helpers) |
-| `order_counter.json` | Persists the sequential JD order ID counter |
-| `receipts/` | Downloaded receipt PDFs (when "Save receipts locally" is On) |
-| `regression/` | Python regression package (reference spec for the TS harness — not part of the interactive CLI) |
-| `ts/` | TypeScript regression harness (active — see TAA-13) |
+| `ts/src/cli-order.ts` | The `order` subcommand — ad-hoc Shopify/NewStore order placement |
+| `ts/src/clients/shopify.ts` | Shopify Admin GraphQL client (draft orders, shipping rates, pickup locations, variant prices) |
+| `ts/src/clients/newstore.ts` | NewStore staging HTTP client (OAuth2, GET/POST helpers) |
+| `ts/src/clients/dynamo.ts` | DynamoDB stock management |
+| `ts/src/flows/newstoreOrders.ts` | NewStore order injection (SFS & OTC) payload builders + price lookups |
+| `ts/src/flows/receipts.ts` | Receipt PDF generation and order note posting |
+| `ts/` (rest) | TypeScript regression harness — see TAA-13/TAA-14/TAA-17 in `CLAUDE.md` |
 
 ---
 
@@ -183,7 +133,8 @@ Switching store also rebuilds the preset maps and customer pool for the new stor
 
 | Date | Change |
 | --- | --- |
+| 2026-08-04 | **Python fully retired (TAA-15).** `main.py` and its remaining Python-only dependencies (`orders_processor.py`, `aws_inventory.py`, `graphql_scripts.py`, `newstore_client.py`, `newstore_orders.py`, `receipt_service.py`) deleted. Replaced by the minimal `order` subcommand described above — live-confirmed on staging (Shopify #9860, NewStore SFS `QASFS_1785818538240_6e9e1ee470`). Settings menu, presets, stress-test, and fire-and-verify remain deferred (see "Not yet ported"). `requirements.txt` removed — no Python dependencies remain. |
 | 2026-07-17 | Repo moved to [JamesJohnston93/qa](https://github.com/JamesJohnston93/qa) (`shopify-order-creator/`). Additive module changes for the regression harness: `complete_draft_order` now returns the created order's id/name; `ensure_stock`/`split_stock` accept `strict=True`. No interactive CLI behaviour changes. Documentation ownership: JJ. |
-| 2026-07-03 | Dynamic store location lookup — store name, address, and phone are now fetched live from the NewStore locations API (`GET /v0/d/config/v1/ops/stores/{store_id}`) and cached per session. Previously these were hardcoded values. |
-| 2026-07-03 | Receipt PDF generation via NewStore Template Service; product names and EANs from NewStore catalog; order note posts permanent PDF link; save-locally toggle (Settings option 10); fixed cash payment instrument workaround; associate name shown as note author |
+| 2026-07-03 | Dynamic store location lookup — store name, address, and phone are now fetched live from the NewStore locations API and cached per session. Previously these were hardcoded values. |
+| 2026-07-03 | Receipt PDF generation via NewStore Template Service; product names and EANs from NewStore catalog; order note posts permanent PDF link; save-locally toggle; fixed cash payment instrument workaround; associate name shown as note author |
 | 2026-07-03 | Initial documentation created |

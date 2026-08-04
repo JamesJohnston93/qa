@@ -10,6 +10,8 @@ The immediate priority is **omni-channel alignment**: proving that orders place,
 
 ## Where it stands today
 
+*(Status update, 2026-08-04: the TypeScript rebuild — described as Workstream 1 below — is complete, and the Python CLI referenced in the rest of this section has since been retired in favour of the `order` subcommand under `ts/`, see `CLAUDE.md` and `qa-order-cli-tool-documentation.md`. The "where it stands today" paragraph immediately below is left as written for historical context on the state this scope was written against; treat `CLAUDE.md` as authoritative for current status.)*
+
 The Python CLI places Shopify orders (US and PS) and injects NewStore SFS/OTC orders, managing DynamoDB inventory before each order. Verification of the downstream flow is the gap: created-order IDs aren't captured, there is no read-back of `staging-orders-v2` / `staging-shipments` state, no inventory decrement checks, and failure paths are silent. Coverage stops at creation; the regression baseline (Phase 0) closes this.
 
 ## Objectives
