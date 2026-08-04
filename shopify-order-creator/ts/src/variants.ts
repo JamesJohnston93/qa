@@ -27,6 +27,20 @@ export const PS_VARIANTS: Record<string, string> = {
   "33801421": "gid://shopify/ProductVariant/50774177186084",
   "34012956": "gid://shopify/ProductVariant/50913560035620",
   "33487854": "gid://shopify/ProductVariant/50774175940900",
+  // TAA-22: 10 more from the resolved staging pool (sku-lists/ps-skus.json),
+  // bringing PS to 14 total, same as US — enough for full per-case disjoint
+  // SKU assignment (10 needed) plus headroom, now that the PS token has
+  // read_products.
+  "34013038": "gid://shopify/ProductVariant/50911767691556",
+  "33975283": "gid://shopify/ProductVariant/50774138454308",
+  "33948010": "gid://shopify/ProductVariant/50773836103972",
+  "34061343": "gid://shopify/ProductVariant/51049159164196",
+  "33997759": "gid://shopify/ProductVariant/50773749399844",
+  "33948256": "gid://shopify/ProductVariant/50774233940260",
+  "34013458": "gid://shopify/ProductVariant/50783987532068",
+  "33790626": "gid://shopify/ProductVariant/50773793767716",
+  "33933542": "gid://shopify/ProductVariant/50773817557284",
+  "33950419": "gid://shopify/ProductVariant/50789237162276",
 };
 
 export function variantsFor(store: Store): Record<string, string> {
@@ -58,7 +72,22 @@ export const US_SKU_ORDER: string[] = [
   "33819099",
   "33775371",
 ];
-export const PS_SKU_ORDER: string[] = ["33203669", "33801421", "34012956", "33487854"];
+export const PS_SKU_ORDER: string[] = [
+  "33203669",
+  "33801421",
+  "34012956",
+  "33487854",
+  "34013038",
+  "33975283",
+  "33948010",
+  "34061343",
+  "33997759",
+  "33948256",
+  "34013458",
+  "33790626",
+  "33933542",
+  "33950419",
+];
 
 export function skuPoolFor(store: Store): string[] {
   return store === "US" ? US_SKU_ORDER : PS_SKU_ORDER;

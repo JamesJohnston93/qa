@@ -9,6 +9,7 @@ function fakeResponse(status, jsonBody, headers = {}) {
     statusText: `STATUS_${status}`,
     headers: { get: (name) => headers[name] ?? null },
     json: async () => jsonBody,
+    text: async () => JSON.stringify(jsonBody),
   };
 }
 
@@ -24,6 +25,15 @@ function withToken(t) {
   process.env.US_ACCESS_TOKEN = 'test-token';
   t.after(() => {
     delete process.env.US_ACCESS_TOKEN;
+  });
+}
+
+function withPsCreds(t) {
+  process.env.PS_CLIENT_ID = 'test-ps-client-id';
+  process.env.PS_CLIENT_SECRET = 'test-ps-client-secret';
+  t.after(() => {
+    delete process.env.PS_CLIENT_ID;
+    delete process.env.PS_CLIENT_SECRET;
   });
 }
 
@@ -192,4 +202,112 @@ test('fetchVariantPrices throws if the response has no data at all', async (t) =
     () => client.fetchVariantPrices(['gid://shopify/ProductVariant/1']),
     /returned no data/,
   );
+});
+
+test('PS execute obtains an OAuth token via the client-credentials grant before calling the GraphQL endpoint', async (t) => {
+  withPsCreds(t);
+  let capturedTokenUrl;
+  let capturedTokenInit;
+  withFetch(t, async (url, init) => {
+    if (String(url).includes('/admin/oauth/access_token')) {
+      capturedTokenUrl = String(url);
+      capturedTokenInit = init;
+      return fakeResponse(200, { access_token: 'ps-tok-1', expires_in: 86399 });
+    }
+    return fakeResponse(200, { data: { ok: true } });
+  });
+
+  const client = new ShopifyClient('PS');
+  await client.execute('query {}', {});
+
+  assert.match(capturedTokenUrl, /^https:\/\/perfect-stranger-staging\.myshopify\.com\/admin\/oauth\/access_token$/);
+  assert.equal(capturedTokenInit.method, 'POST');
+  assert.equal(capturedTokenInit.headers['Content-Type'], 'application/x-www-form-urlencoded');
+  const body = new URLSearchParams(capturedTokenInit.body);
+  assert.equal(body.get('grant_type'), 'client_credentials');
+  assert.equal(body.get('client_id'), 'test-ps-client-id');
+  assert.equal(body.get('client_secret'), 'test-ps-client-secret');
+});
+
+test('PS execute caches the OAuth token across calls instead of refetching it', async (t) => {
+  withPsCreds(t);
+  let tokenCallCount = 0;
+  withFetch(t, async (url) => {
+    if (String(url).includes('/admin/oauth/access_token')) {
+      tokenCallCount += 1;
+      return fakeResponse(200, { access_token: 'ps-tok', expires_in: 86399 });
+    }
+    return fakeResponse(200, { data: { ok: true } });
+  });
+
+  const client = new ShopifyClient('PS');
+  await client.execute('query {}', {});
+  await client.execute('query {}', {});
+
+  assert.equal(tokenCallCount, 1, 'a still-valid PS token should be reused, not refetched');
+});
+
+test('PS execute refetches the token once it is within the pre-expiry refresh buffer', async (t) => {
+  withPsCreds(t);
+  let tokenCallCount = 0;
+  withFetch(t, async (url) => {
+    if (String(url).includes('/admin/oauth/access_token')) {
+      tokenCallCount += 1;
+      // expires_in is well under the refresh buffer, so every call sees a
+      // token that's already "about to expire" and must refetch.
+      return fakeResponse(200, { access_token: `ps-tok-${tokenCallCount}`, expires_in: 10 });
+    }
+    return fakeResponse(200, { data: { ok: true } });
+  });
+
+  const client = new ShopifyClient('PS');
+  await client.execute('query {}', {});
+  await client.execute('query {}', {});
+
+  assert.equal(tokenCallCount, 2, 'a PS token inside the refresh buffer should be refetched, not reused');
+});
+
+test('PS execute throws immediately when PS_CLIENT_ID/PS_CLIENT_SECRET are missing, without calling fetch', async (t) => {
+  let called = false;
+  withFetch(t, async () => {
+    called = true;
+    return fakeResponse(200, { data: { ok: true } });
+  });
+
+  const client = new ShopifyClient('PS');
+  await assert.rejects(
+    () => client.execute('query {}', {}),
+    /Missing PS_CLIENT_ID\/PS_CLIENT_SECRET/,
+  );
+  assert.equal(called, false);
+});
+
+test('PS execute surfaces a failed OAuth token request with the response body', async (t) => {
+  withPsCreds(t);
+  withFetch(t, async (url) => {
+    if (String(url).includes('/admin/oauth/access_token')) {
+      return fakeResponse(401, { error: 'invalid_client' });
+    }
+    return fakeResponse(200, { data: { ok: true } });
+  });
+
+  const client = new ShopifyClient('PS');
+  await assert.rejects(
+    () => client.execute('query {}', {}),
+    /PS OAuth token request failed: 401/,
+  );
+});
+
+test('US execute is unaffected by PS OAuth and still uses the static US_ACCESS_TOKEN', async (t) => {
+  withToken(t);
+  let capturedHeaders;
+  withFetch(t, async (url, init) => {
+    capturedHeaders = init.headers;
+    return fakeResponse(200, { data: { ok: true } });
+  });
+
+  const client = new ShopifyClient('US');
+  await client.execute('query {}', {});
+
+  assert.equal(capturedHeaders['X-Shopify-Access-Token'], 'test-token');
 });

@@ -3,7 +3,27 @@
 TypeScript CLI + regression harness (`ts/`) for placing test orders on Universal Store / Perfect Stranger **staging** and verifying omni-channel alignment across Shopify, AWS (DynamoDB), and NewStore. Two entry points from the same build: `node dist/index.js order ...` places one ad-hoc test order on demand (TAA-15); `node dist/index.js` with no subcommand runs the automated regression suite (TAA-13/14/17).
 
 **Owner:** JJ (james.johnston@universalstore.com.au). Tool originally by Jared Davis (as a Python CLI — see "TS rewrite complete" below).
-**Tracking:** Jira project TAA (current: TAA-15). Docs: Confluence QD space → "QA Automation Tool" page tree — see `regression-package-design.md` and `scope-of-work-reworked.md` in this folder, and `qa-order-cli-tool-documentation.md` for the `order` command's user-facing docs.
+**Tracking:** Jira project TAA (current: TAA-22, in progress — see "TAA-22" below). Docs: Confluence QD space → "QA Automation Tool" page tree — see `regression-package-design.md` and `scope-of-work-reworked.md` in this folder, and `qa-order-cli-tool-documentation.md` for the `order` command's user-facing docs.
+
+## ⚠ NEXT SESSION — CLOSE OUT TAA-22, THEN RE-PARALLELISE ACROSS STORES
+
+PS OAuth (step 1) and PS SKU wiring (step 2) are **done** — see "TAA-22" below.
+One item is still open before TAA-22 can close: **`--store PS --repeat 3` was
+killed mid-run** on a session where staging responded much slower than normal
+(projected ~29 min total vs US's ~4 min `--parallel --repeat 3` gate) — not
+diagnosed as a code defect (single-pass sequential and `--parallel` runs are
+both clean, byte-identical stable signatures), but not yet confirmed as a
+one-off either. Next session: re-run `--store PS --parallel --repeat 3` when
+staging is responding normally; if the slowdown recurs, escalate it as a real
+backend/staging finding (same category as the historical intermittent
+refund-automation miss elsewhere in this file).
+
+Once that's clean, the broader goal: a single "full basic regression run"
+executes **each case exactly once, in parallel, across US + PS + NS as
+needed, target <6 min** (US and PS are fully disjoint stores → can run
+concurrently). Then TAA-21 (rejection + fulfilment).
+
+Everything below this block is historical rewrite context, not the live task list.
 
 ## ✅ TS REWRITE COMPLETE (2026-08-04) — zero Python remains
 
@@ -123,6 +143,92 @@ above). The full TAA-15 operator-UX rework (settings, presets, stress-test,
 fire-and-verify, GUI) remains open as later, separately-scoped work — it
 was never part of this definition.
 
+### TAA-22 — PS OAuth unblock (2026-08-04, branch `taa-22-ps`)
+
+**Background:** Shopify retired static custom-app tokens Jan 1 2026. US's
+existing `US_ACCESS_TOKEN` predates the cutover and keeps working, untouched.
+PS's static token stopped working — PS now authenticates via a CLI/Dev-Dashboard
+app ("QA PS App") using the OAuth client-credentials grant.
+
+**Step 1 — PS OAuth in `clients/shopify.ts` — done, live-confirmed.**
+`ShopifyClient` now has a `getPsOAuthToken()` provider, same shape as
+`clients/newstore.ts`'s token cache: `POST
+https://perfect-stranger-staging.myshopify.com/admin/oauth/access_token`
+(form-urlencoded `grant_type=client_credentials`, `client_id`, `client_secret`
+— confirmed against shopify.dev's client-credentials-grant doc before
+writing any code, not guessed), token cached on the instance, refreshed 5
+min ahead of the ~24h (`expires_in` ≈86399s) expiry. Store selection:
+US = static `US_ACCESS_TOKEN` (unchanged), PS = OAuth via `PS_CLIENT_ID` /
+`PS_CLIENT_SECRET` — no fallback to a static PS token, since that auth model
+no longer works at all. 6 new offline tests (token obtained/cached/refetched
+near expiry, missing-creds throws without calling fetch, a failed token
+request surfaces its body, US path proven unaffected) — `npm run build` +
+`npm test` green (156/156). **Live-confirmed:** a real token fetch against
+PS staging, then `currentAppInstallation` via the harness's own
+`ShopifyClient.execute()` — app title **"QA PS App"**, scopes include
+`read_products` (plus `read/write_orders`, `read/write_inventory`,
+`read/write_fulfillments`, etc.).
+
+**Step 2 — PS SKU pool — done.** `node scripts/fetch-sku-gids.js PS` (the
+`ACCESS_DENIED` block from 2026-07-31 is gone now that the token has
+`read_products`) resolved 180/200 SKUs into `sku-lists/ps-skus.json` (20
+unresolved, logged — same shape as US's 191/200, plenty of headroom, not
+worth chasing). The script itself was refactored to `require()` the
+compiled `ShopifyClient` instead of its own raw-fetch/static-token logic —
+it now gets PS's OAuth grant (and US's static token, and Shopify's throttle
+retry) for free instead of needing its own auth path kept in sync
+separately. `variants.ts`'s `PS_VARIANTS`/`PS_SKU_ORDER` grown from 4 to 14
+entries (10 new, taken in list order from `ps-skus.json`, GIDs cross-checked
+programmatically against the source JSON before committing — same
+transcription-error guard used for US's Phase B pool growth). `PS_SKU_ORDER`
+now has enough entries for `baselineCases.ts`'s existing 10-slot disjoint
+assignment (`single`=0, `multi`=1, `unique`=2-4, `split`=5-6,
+`undeliverable`=7, `partial_undeliverable`=8-9) to apply to PS automatically
+— no case-file changes needed, `sku(i) = pool[i % pool.length]` was already
+generic. PS's old 4-SKU modulo-wraparound behaviour (multiple cases silently
+sharing a SKU) is gone; PS is now SKU-isolated the same as US, which is what
+makes `--parallel` safe on PS too.
+
+**Step 3 — prove PS — PARTIAL, one item still open.**
+
+- `--store PS --cases single` (smoke): **PASS**.
+- Full 8-case default set (6 baseline + `ns_sfs`/`ns_otc`), sequential:
+  **PASS**, wall-clock **4:13.41**. `ns_sfs`/`ns_otc` — previously hard-blocked
+  on the `read_products` `ACCESS_DENIED` — both passed cleanly (read-back
+  2.9s/3.5s). Report `regression_PS_20260804T062615Z.md`.
+- Same full 8-case set, `--parallel`: **PASS**, wall-clock **1:35.94**.
+  Stable signature (pass/fail + failing check per case, via `report.ts`'s
+  `stableSignature()`) diffed programmatically against the sequential run
+  above — **byte-identical**, all 8 cases pass either way. Report
+  `regression_PS_20260804T062806Z.md`.
+- **`--store PS --repeat 3` — killed by JJ before completion, not yet clean.**
+  Repeat 1/3 passed all 6 baseline cases and was mid-`ns_sfs` (~20 min
+  elapsed) when killed. Staging ran markedly slower this session than the
+  single-pass runs just above — e.g. `allocation` 52.0s and `cleanup` 26.4s
+  for `partial_undeliverable`, versus ~11–17s/~20–30s historical — and the
+  live progress tracker's own ETA had grown from an initial ~11 min estimate
+  to **~29 min projected total**. JJ killed the run at that point: **a ~30min
+  `--repeat 3` for one store is ~5x longer than acceptable** (per JJ,
+  2026-08-04) — for comparison, US's `--parallel --repeat 3` full-set gate
+  is the ~4 min figure the TAA-14 Phase B headline result is built on (see
+  below), and even a fully-sequential `--repeat 3` shouldn't be 5-7x that.
+  **Not diagnosed as a code defect** — the OAuth/SKU-pool changes above are
+  proven clean at the single-run level (both sequential and parallel, byte
+  identical signatures); this looks like a staging-side slowdown during this
+  particular session (same category as the historical intermittent
+  refund-automation miss elsewhere in this file), but it was not
+  investigated further before being killed. **Next step, before closing
+  TAA-22:** re-run `--store PS --repeat 3` (ideally `--parallel --repeat 3`
+  to match how US is actually gated) at a time when staging responds at its
+  normal speed, and if the slowdown recurs, escalate it the same way the
+  refund-automation gap was — a real backend/staging finding, not a harness
+  problem, but not yet confirmed to be a one-off.
+
+**Docs updated:** `qa-order-cli-tool-documentation.md`'s env var table,
+`README.md`'s prereqs line — both now say `PS_CLIENT_ID`/`PS_CLIENT_SECRET`
+instead of `PS_ACCESS_TOKEN`. This file's own "Stack & environment" section
+below is updated the same way.
+
 ---
 
 ## Regression baseline (done — TAA-13)
@@ -213,9 +319,10 @@ Track progress on [TAA-13](https://universalstore.atlassian.net/browse/TAA-13) �
 ## Stack & environment
 
 - **Staging only.** Shopify Admin GraphQL 2025-10: `universal-store-staging.myshopify.com` (US), `perfect-stranger-staging.myshopify.com` (PS).
+- **Shopify auth (TAA-22):** US = static `US_ACCESS_TOKEN` (predates Shopify's Jan 1 2026 retirement of static custom-app tokens, still works). PS = OAuth client-credentials grant against `https://perfect-stranger-staging.myshopify.com/admin/oauth/access_token` (`PS_CLIENT_ID`/`PS_CLIENT_SECRET`, "QA PS App"), token cached and refreshed ~5 min ahead of its ~24h expiry — see `clients/shopify.ts`.
 - **NewStore:** `universalstore-staging.p.newstore.net`, OAuth2 client-credentials via `id.p.newstore.net` (Keycloak). Order injection: `POST /v0/d/fulfill_order`.
 - **AWS:** region `ap-southeast-2`, boto3 named profile `staging` (`aws sso login --profile staging` when expired).
-- **Env vars (required at import):** `US_ACCESS_TOKEN`, `PS_ACCESS_TOKEN`, `NS_STAGING_CLIENT_ID`, `NS_STAGING_CLIENT_SECRET`. Optional: `AWS_REGION`, `AWS_PROFILE`, `NS_INVENTORY_STORE_KEY`.
+- **Env vars (required at import):** `US_ACCESS_TOKEN`, `PS_CLIENT_ID`, `PS_CLIENT_SECRET`, `NS_STAGING_CLIENT_ID`, `NS_STAGING_CLIENT_SECRET`. Optional: `AWS_REGION`, `AWS_PROFILE`, `NS_INVENTORY_STORE_KEY`.
 - Build once per checkout: `cd ts && npm install && npm run build`. Place an ad-hoc order: `node dist/index.js order --help` (see `qa-order-cli-tool-documentation.md`). Run the regression suite: `node dist/index.js --help`. No Python, no `requirements.txt` — the tool is 100% TypeScript (Node.js).
 
 ## DynamoDB tables (staging)

@@ -19,8 +19,9 @@ The following environment variables must be set before running the tool:
 
 | Variable | Purpose |
 | --- | --- |
-| `US_ACCESS_TOKEN` | Shopify Admin API token — Universal Store staging |
-| `PS_ACCESS_TOKEN` | Shopify Admin API token — Perfect Stranger staging |
+| `US_ACCESS_TOKEN` | Shopify Admin API static token — Universal Store staging |
+| `PS_CLIENT_ID` | Shopify OAuth client-credentials client id — Perfect Stranger staging (TAA-22; static tokens stopped working Jan 1 2026) |
+| `PS_CLIENT_SECRET` | Shopify OAuth client-credentials client secret — Perfect Stranger staging (TAA-22) |
 | `NS_STAGING_CLIENT_ID` | NewStore OAuth2 client ID |
 | `NS_STAGING_CLIENT_SECRET` | NewStore OAuth2 client secret |
 

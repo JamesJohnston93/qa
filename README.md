@@ -44,7 +44,7 @@ Next: fulfilment verification + rejection/reallocation cases ([TAA-21](https://u
 
 ## Run it
 
-Prereqs: `US_ACCESS_TOKEN` / `PS_ACCESS_TOKEN` / `NS_STAGING_CLIENT_ID` / `NS_STAGING_CLIENT_SECRET` env vars, `aws sso login --profile staging`. Build once: `cd shopify-order-creator/ts && npm install && npm run build`.
+Prereqs: `US_ACCESS_TOKEN` (static) / `PS_CLIENT_ID` + `PS_CLIENT_SECRET` (OAuth client-credentials, TAA-22 — PS lost its static token Jan 1 2026) / `NS_STAGING_CLIENT_ID` / `NS_STAGING_CLIENT_SECRET` env vars, `aws sso login --profile staging`. Build once: `cd shopify-order-creator/ts && npm install && npm run build`.
 
 ```bash
 cd shopify-order-creator/ts

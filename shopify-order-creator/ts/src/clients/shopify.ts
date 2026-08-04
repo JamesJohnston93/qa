@@ -16,6 +16,15 @@
  * in the client, transparent to every caller. Shopify signals throttling
  * two ways: an HTTP 429, or a 200 whose GraphQL `errors` carry a THROTTLED
  * extension code; both are retried with backoff.
+ *
+ * Auth (TAA-22): Shopify retired static custom-app tokens (Jan 1 2026). US
+ * still authenticates with a static token (`US_ACCESS_TOKEN`) that predates
+ * the cutover and keeps working — left untouched. PS now authenticates via
+ * the client-credentials grant (`PS_CLIENT_ID`/`PS_CLIENT_SECRET`) against
+ * its own CLI/Dev-Dashboard app: POST client_id/client_secret to
+ * `/admin/oauth/access_token`, cache the returned token, refresh a few
+ * minutes ahead of its ~24h expiry — same shape as clients/newstore.ts's
+ * OAuth token cache.
  */
 
 import type { Store } from "../config";
@@ -51,6 +60,15 @@ interface GraphQLResponse<T> {
 /** Overridable so tests don't have to wait out real backoff delays. */
 const DEFAULT_THROTTLE_RETRY_DELAYS_MS = [1000, 2000, 4000, 8000];
 
+const PS_SHOP_DOMAIN = "perfect-stranger-staging.myshopify.com";
+/** Refresh a few minutes ahead of the ~24h (86399s) client-credentials token expiry. */
+const PS_TOKEN_EXPIRY_BUFFER_MS = 5 * 60 * 1000;
+
+interface PsTokenResponse {
+  access_token: string;
+  expires_in?: number;
+}
+
 function isThrottled(errors: GraphQLError[] | undefined): boolean {
   return (errors ?? []).some((e) => e.extensions?.code === "THROTTLED" || /throttled/i.test(e.message));
 }
@@ -63,6 +81,8 @@ function sleep(ms: number): Promise<void> {
 
 export class ShopifyClient {
   private readonly throttleRetryDelaysMs: number[];
+  private psToken: string | null = null;
+  private psTokenExpiresAt = 0; // epoch ms
 
   constructor(
     private readonly store: Store,
@@ -77,7 +97,7 @@ export class ShopifyClient {
     for (let attempt = 1; attempt <= totalAttempts; attempt += 1) {
       const response = await fetch(this.getEndpoint(), {
         method: "POST",
-        headers: this.getHeaders(),
+        headers: await this.getHeaders(),
         body: JSON.stringify({ query, variables }),
       });
 
@@ -313,18 +333,64 @@ export class ShopifyClient {
   private getEndpoint(): string {
     return this.store === "US"
       ? "https://universal-store-staging.myshopify.com/admin/api/2025-10/graphql.json"
-      : "https://perfect-stranger-staging.myshopify.com/admin/api/2025-10/graphql.json";
+      : `https://${PS_SHOP_DOMAIN}/admin/api/2025-10/graphql.json`;
   }
 
-  private getHeaders(): Record<string, string> {
-    const token = this.store === "US" ? process.env.US_ACCESS_TOKEN : process.env.PS_ACCESS_TOKEN;
-    if (!token) {
-      throw new Error(`Missing ${this.store === "US" ? "US_ACCESS_TOKEN" : "PS_ACCESS_TOKEN"} environment variable`);
-    }
+  private async getHeaders(): Promise<Record<string, string>> {
+    const token = await this.getAccessToken();
     return {
       "Content-Type": "application/json",
       "X-Shopify-Access-Token": token,
     };
+  }
+
+  private async getAccessToken(): Promise<string> {
+    if (this.store === "US") {
+      const token = process.env.US_ACCESS_TOKEN;
+      if (!token) {
+        throw new Error("Missing US_ACCESS_TOKEN environment variable");
+      }
+      return token;
+    }
+    return this.getPsOAuthToken();
+  }
+
+  /**
+   * PS client-credentials grant (TAA-22): cached and refreshed a few
+   * minutes ahead of the ~24h expiry, same shape as
+   * clients/newstore.ts's getToken(). No fallback to a static PS token —
+   * that auth model no longer works (Shopify retired it Jan 1 2026).
+   */
+  private async getPsOAuthToken(): Promise<string> {
+    if (this.psToken && Date.now() < this.psTokenExpiresAt - PS_TOKEN_EXPIRY_BUFFER_MS) {
+      return this.psToken;
+    }
+
+    const clientId = process.env.PS_CLIENT_ID;
+    const clientSecret = process.env.PS_CLIENT_SECRET;
+    if (!clientId || !clientSecret) {
+      throw new Error("Missing PS_CLIENT_ID/PS_CLIENT_SECRET environment variables");
+    }
+
+    const response = await fetch(`https://${PS_SHOP_DOMAIN}/admin/oauth/access_token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "client_credentials",
+        client_id: clientId,
+        client_secret: clientSecret,
+      }),
+    });
+
+    if (!response.ok) {
+      const body = await response.text().catch(() => "");
+      throw new Error(`PS OAuth token request failed: ${response.status} ${response.statusText} — ${body}`);
+    }
+
+    const data = (await response.json()) as PsTokenResponse;
+    this.psToken = data.access_token;
+    this.psTokenExpiresAt = Date.now() + (data.expires_in ?? 86_399) * 1000;
+    return this.psToken;
   }
 }
 
