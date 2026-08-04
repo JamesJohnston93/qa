@@ -26,6 +26,40 @@ The regression **baseline** (Shopify order → allocation → shipments → inve
 
 ~~NS client → NS injection (collision-free IDs) → NS read-back + cases 7–8 → receipt decision → CLI/operator surface (TAA-15). Each step: build + verify in TS, then `git rm` the corresponding Python.~~ — the "git rm as each TS piece lands" plan didn't account for `main.py` importing `newstore_client`/`newstore_orders`/`receipt_service` directly (see item 5's correction above). Actual order: NS client → NS injection → NS read-back + cases 7–8 → receipt decision (all four **done and TS-verified** 2026-07-31) → **`git rm` the retired `regression/` package** (done 2026-07-31 — it was the one piece with zero remaining dependents) → everything else (`main.py` + `orders_processor.py`/`aws_inventory.py`/`graphql_scripts.py`/`newstore_client.py`/`newstore_orders.py`/`receipt_service.py`) waits on **TAA-15** as one batch, since `main.py` is the sole remaining consumer of all of them.
 
+### Consolidation before TAA-15 (2026-08-04)
+
+`main` was stale at TAA-17 step 1 while `taa-14-speedup` (run-time optimisation)
+and `taa-17-newstore` (NewStore rewrite) both diverged from it independently.
+Per JJ, consolidated onto `main` before branching `taa-15-cli-port`:
+
+1. **`taa-14-speedup` → `main`**: clean merge, no conflicts (both branches
+   forked from the same tip). Build + 78/78 offline tests green. Live-confirmed
+   `--store US --cases single` — order #9859-line PASS with the new adaptive-poll
+   progress line working end to end.
+2. **`taa-17-newstore` → `main`**: conflicts in `src/runner.ts`/`src/cli.ts`
+   (both branches touched them — TAA-14 added the progress tracker + `--parallel`
+   wave scheduler; TAA-17 added the NewStore case path). Neither side's code knew
+   about the other's cases, so this needed a real design decision, not a textual
+   pick: `CaseDefinition`/`NewStoreCaseDefinition` now both carry a `kind:
+   "pipeline" | "newstore"` discriminator, and `runner.ts`'s `run()` partitions on
+   it rather than on hardcoded names or map membership — future pipeline-shaped
+   cases (e.g. TAA-21 fulfilment/rejection) get tracker+`--parallel` support for
+   free. `"pipeline"` cases route through the unchanged TAA-14 tracker/scheduler;
+   `"newstore"` cases always run sequentially via the unchanged TAA-17
+   `runNewStoreCase()` loop (logged as a note under `--parallel`, since they're a
+   2-stage NewStore-only round trip with no Shopify/Dynamo state for the wave
+   scheduler to reason about) — both result sets concatenate before the
+   report/variance diff, so `--repeat` still catches NS variance. `tests/shopify.test.js`
+   was an add/add conflict (both branches created it independently for different
+   tests) — merged to keep every test from both. Build + 118/118 offline tests
+   green. Live-confirmed `--store US --cases single,ns_sfs`: order #9859 (pipeline,
+   full progress-tracker line) + NewStore SFS `QASFS_1785817688000_34a4c42ae3`
+   (sequential, no tracker) both **PASS** in the same run — report
+   `regression_US_20260804T042813Z.md`.
+
+`main` is now current with both feature sets; `taa-15-cli-port` branches from
+here.
+
 ### Definition of "rewrite complete"
 
 No `.py` files remain under `shopify-order-creator/` (or only an intentionally-kept archive), the TS harness covers Shopify + AWS + NewStore end to end, and NS cases 7–8 pass live. Only then does the "remove all Python" cleanup happen.
