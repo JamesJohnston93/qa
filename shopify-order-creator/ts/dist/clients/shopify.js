@@ -10,24 +10,67 @@
  * there is no synthetic/fallback ID path. A regression harness that silently
  * invented an order id on a malformed response would make every downstream
  * assertion meaningless.
+ *
+ * Throttle retry (TAA-14 Phase B step 3): the Admin API is cost-throttled,
+ * and running cases concurrently under `--parallel` makes hitting that
+ * throttle far more likely than in sequential mode. This is an infra
+ * concern — nothing to do with a stage's poll interval — so it lives here
+ * in the client, transparent to every caller. Shopify signals throttling
+ * two ways: an HTTP 429, or a 200 whose GraphQL `errors` carry a THROTTLED
+ * extension code; both are retried with backoff.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ShopifyClient = void 0;
+/** Overridable so tests don't have to wait out real backoff delays. */
+const DEFAULT_THROTTLE_RETRY_DELAYS_MS = [1000, 2000, 4000, 8000];
+function isThrottled(errors) {
+    return (errors ?? []).some((e) => e.extensions?.code === "THROTTLED" || /throttled/i.test(e.message));
+}
+function sleep(ms) {
+    return new Promise((resolve) => {
+        setTimeout(resolve, ms);
+    });
+}
 class ShopifyClient {
     store;
-    constructor(store) {
+    throttleRetryDelaysMs;
+    constructor(store, options = {}) {
         this.store = store;
+        this.throttleRetryDelaysMs = options.throttleRetryDelaysMs ?? DEFAULT_THROTTLE_RETRY_DELAYS_MS;
     }
     async execute(query, variables) {
-        const response = await fetch(this.getEndpoint(), {
-            method: "POST",
-            headers: this.getHeaders(),
-            body: JSON.stringify({ query, variables }),
-        });
-        if (!response.ok) {
-            throw new Error(`Shopify request failed: ${response.status} ${response.statusText}`);
+        const totalAttempts = this.throttleRetryDelaysMs.length + 1;
+        for (let attempt = 1; attempt <= totalAttempts; attempt += 1) {
+            const response = await fetch(this.getEndpoint(), {
+                method: "POST",
+                headers: this.getHeaders(),
+                body: JSON.stringify({ query, variables }),
+            });
+            if (response.status === 429) {
+                if (attempt === totalAttempts) {
+                    throw new Error(`Shopify request throttled (429) after ${totalAttempts} attempts`);
+                }
+                const retryAfterHeader = Number(response.headers.get("Retry-After"));
+                const delay = Number.isFinite(retryAfterHeader) && retryAfterHeader > 0
+                    ? retryAfterHeader * 1000
+                    : this.throttleRetryDelaysMs[attempt - 1];
+                await sleep(delay);
+                continue;
+            }
+            if (!response.ok) {
+                throw new Error(`Shopify request failed: ${response.status} ${response.statusText}`);
+            }
+            const json = (await response.json());
+            if (isThrottled(json.errors)) {
+                if (attempt === totalAttempts) {
+                    throw new Error(`Shopify GraphQL throttled after ${totalAttempts} attempts: ${JSON.stringify(json.errors)}`);
+                }
+                await sleep(this.throttleRetryDelaysMs[attempt - 1]);
+                continue;
+            }
+            return json;
         }
-        return (await response.json());
+        throw new Error("unreachable: throttle retry loop exited without returning or throwing");
     }
     /**
      * No customerId is passed: Shopify creates/attaches a customer from

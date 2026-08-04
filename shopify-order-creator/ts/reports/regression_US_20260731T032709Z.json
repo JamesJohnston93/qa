@@ -1,0 +1,55 @@
+{
+  "store": "US",
+  "timestamp": "20260731T032709Z",
+  "repeat": 1,
+  "passed": true,
+  "repeatConsistent": true,
+  "variance": {},
+  "runs": [
+    {
+      "store": "US",
+      "cases": [
+        {
+          "case": "single",
+          "store": "US",
+          "description": "Single item, stock at one location -> one shipment there",
+          "passed": true,
+          "orderId": "gid://shopify/Order/7807499993361",
+          "orderName": "#9798",
+          "stages": [
+            {
+              "name": "seed_inventory",
+              "elapsed": 1.1
+            },
+            {
+              "name": "create_order",
+              "elapsed": 3.8
+            },
+            {
+              "name": "shopify_readback",
+              "elapsed": 0.3
+            },
+            {
+              "name": "orders_table",
+              "elapsed": 11.6
+            },
+            {
+              "name": "allocation",
+              "elapsed": 16.3
+            },
+            {
+              "name": "no_refund",
+              "elapsed": 0
+            },
+            {
+              "name": "inventory",
+              "elapsed": 0
+            }
+          ],
+          "error": null
+        }
+      ],
+      "passed": true
+    }
+  ]
+}

@@ -8,12 +8,28 @@
 
 import { defaultConfig, validateConfig, type RegressionConfig } from "./config";
 import { buildCases, type CaseDefinition } from "./cases/baselineCases";
+import { buildWaves, runBounded } from "./scheduler";
 import { prepareInventory, placeOrder } from "./flows/orderFlow";
 import { DynamoClient } from "./clients/dynamo";
 import { ShopifyClient } from "./clients/shopify";
-import { DynamoReader, allocationSummary, type ShipmentItem } from "./readers/dynamoReader";
+import {
+  DynamoReader,
+  allocationSummary,
+  orderPkFromRows,
+  orderSkuQuantitiesFromRows,
+  type ShipmentItem,
+} from "./readers/dynamoReader";
 import * as shopifyReader from "./readers/shopifyReader";
-import { pollUntil, StageTimeout } from "./polling";
+import { pollUntil, resolveInterval, sleep, StageTimeout, type PollIntervalConfig } from "./polling";
+import {
+  buildRunPlan,
+  createProgressTracker,
+  estimateRemainingSeconds,
+  formatProgressLine,
+  recordStageAverage,
+  stageSequenceFor,
+  type ProgressTracker,
+} from "./progress";
 import { VerificationError } from "./verify/index";
 import { assertOrdersTableAlignment, assertShopifyOrder } from "./verify/orders";
 import { assertAllocation, assertItemsRemoved, assertUnitCounts } from "./verify/shipments";
@@ -58,9 +74,10 @@ async function pollVerify<T>(
   fetch: () => Promise<T> | T,
   verifyFn: (value: T) => void,
   timeout: number,
-  interval: number,
+  interval: number | PollIntervalConfig,
   stage: string,
   verbose: boolean,
+  onWaiting?: (elapsed: number, attempts: number) => void,
 ) {
   const predicate = (value: T): boolean => {
     try {
@@ -75,7 +92,7 @@ async function pollVerify<T>(
   };
 
   try {
-    return await pollUntil(fetch, predicate, timeout, interval, stage, verbose);
+    return await pollUntil(fetch, predicate, timeout, interval, stage, verbose, onWaiting);
   } catch (error) {
     if (error instanceof StageTimeout) {
       verifyFn(error.lastValue as T); // raises the detailed VerificationError
@@ -88,8 +105,19 @@ function round(value: number): number {
   return Number(value.toFixed(1));
 }
 
+export interface ProgressPosition {
+  tracker: ProgressTracker;
+  repeatIndex: number; // 0-based
+  caseIndex: number; // 0-based, within this repeat's case list
+  totalCases: number;
+}
+
 /** Executes one CaseDefinition. Returns a result (never throws). */
-export async function runCase(config: RegressionConfig, caseDef: CaseDefinition): Promise<CaseResult> {
+export async function runCase(
+  config: RegressionConfig,
+  caseDef: CaseDefinition,
+  progress?: ProgressPosition,
+): Promise<CaseResult> {
   const result: CaseResult = {
     case: caseDef.name,
     store: config.store,
@@ -101,8 +129,40 @@ export async function runCase(config: RegressionConfig, caseDef: CaseDefinition)
     error: null,
   };
 
+  // TAA-14 Phase A step 4: live progress line, updated per poll tick.
+  const hasRefund = Object.keys(caseDef.expectedRefundSkus).length > 0;
+  const caseStages = stageSequenceFor(hasRefund);
+  const printProgress = (stageName: string, secondsInStage: number): void => {
+    if (!config.verbose || !progress) {
+      return;
+    }
+    const { tracker, repeatIndex, caseIndex, totalCases } = progress;
+    const stageIndex = caseStages.indexOf(stageName);
+    console.log(
+      `    ${formatProgressLine({
+        repeatIndex,
+        totalRepeats: tracker.totalRepeats,
+        caseIndex,
+        totalCases,
+        caseName: caseDef.name,
+        stageIndex: stageIndex < 0 ? 0 : stageIndex,
+        totalCaseStages: caseStages.length,
+        stageName,
+        secondsInStage,
+        completedStages: tracker.completedStages,
+        totalStages: tracker.flatPlan.length,
+        elapsedSeconds: (Date.now() - tracker.runStart) / 1000,
+        etaSeconds: estimateRemainingSeconds(tracker, secondsInStage),
+      })}`,
+    );
+  };
+
   const stageDone = (name: string, elapsed: number): void => {
     result.stages.push({ name, elapsed: round(elapsed) });
+    if (progress) {
+      recordStageAverage(progress.tracker.averages, name, elapsed);
+      progress.tracker.completedStages += 1;
+    }
     if (config.verbose) {
       console.log(`    [stage] ${name}: ok (${elapsed.toFixed(1)}s)`);
     }
@@ -112,6 +172,11 @@ export async function runCase(config: RegressionConfig, caseDef: CaseDefinition)
   const dynamoReader = new DynamoReader(dynamo, config);
   const shopify = new ShopifyClient(config.store);
   const poll = config.poll;
+  // TAA-14 Phase A step 2: ramp 1s->2s->3s->cap poll.interval instead of a
+  // fixed sleep every tick. Shopify-touching stages keep a 2s floor even on
+  // the first poll to stay clear of rate limits.
+  const dynamoInterval: PollIntervalConfig = { cap: poll.interval };
+  const shopifyInterval: PollIntervalConfig = { cap: poll.interval, min: 2 };
 
   try {
     // --- 1. Seed inventory deterministically -------------------------------
@@ -135,38 +200,88 @@ export async function runCase(config: RegressionConfig, caseDef: CaseDefinition)
       () => shopifyReader.getOrder(shopify, record.orderId),
       (snap) => assertShopifyOrder(snap, caseDef.skuQuantities),
       60,
-      poll.interval,
+      shopifyInterval,
       "shopify_readback",
       config.verbose,
+      (elapsed) => printProgress("shopify_readback", elapsed),
     );
     stageDone("shopify_readback", readback.elapsed);
 
-    // --- 4. staging-orders-v2 row lands and matches -------------------------
-    const ordersTable = await pollVerify(
-      () => dynamoReader.getOrderSkuQuantities(config.store, oidTail),
-      (q) => assertOrdersTableAlignment(q, caseDef.skuQuantities, oname),
-      poll.ordersTable,
-      poll.interval,
-      "orders_table",
-      config.verbose,
-    );
-    stageDone("orders_table", ordersTable.elapsed);
-
-    // --- 5. Shipment ITEM# rows: unit counts, then terminal allocation ------
+    // --- 4+5. orders-v2 row + shipment ITEM# rows: composite poll -----------
+    // TAA-14 Phase A step 3: both checks key off the same staging-orders-v2
+    // rows (allocation needs the order's PK, which lives there too), so one
+    // tick fetches those rows once and advances whichever of orders_table /
+    // allocation now passes — a stage that becomes true while the other is
+    // still pending is caught immediately instead of waiting for a fresh,
+    // separately-ramped poll cycle to start once the first stage finishes.
     const checkAllocation = (items: ShipmentItem[]): void => {
       const summary = allocationSummary(items);
       assertUnitCounts(summary, caseDef.skuQuantities, oname);
       assertAllocation(summary, caseDef.expectedAllocation, oname);
     };
-    const allocation = await pollVerify(
-      () => dynamoReader.getShipmentItems(config.store, oidTail),
-      checkAllocation,
-      poll.shipmentsTable + poll.allocation,
-      poll.interval,
-      "allocation",
-      config.verbose,
-    );
-    stageDone("allocation", allocation.elapsed);
+    const ordersTimeout = poll.ordersTable;
+    const allocationTimeout = poll.shipmentsTable + poll.allocation;
+    const compositeStart = Date.now();
+    let compositeAttempts = 0;
+    let ordersDone: { elapsed: number } | null = null;
+    let allocationDone: { elapsed: number } | null = null;
+    let resolvedPk: string | null = null;
+    let lastSkuQuantities: Record<string, number> = {};
+    let lastItems: ShipmentItem[] = [];
+
+    for (;;) {
+      const rows = await dynamoReader.getOrderRows(config.store, oidTail);
+      compositeAttempts += 1;
+      const elapsed = (Date.now() - compositeStart) / 1000;
+
+      if (!ordersDone) {
+        lastSkuQuantities = orderSkuQuantitiesFromRows(rows);
+        try {
+          assertOrdersTableAlignment(lastSkuQuantities, caseDef.skuQuantities, oname);
+          ordersDone = { elapsed };
+          if (config.verbose) {
+            console.log(`    [poll] orders_table: ok after ${elapsed.toFixed(1)}s (${compositeAttempts} checks)`);
+          }
+        } catch (error) {
+          if (!(error instanceof VerificationError)) {
+            throw error;
+          }
+        }
+      }
+
+      resolvedPk = resolvedPk ?? orderPkFromRows(rows);
+      if (!allocationDone && resolvedPk) {
+        lastItems = await dynamoReader.getShipmentItemsByPk(resolvedPk);
+        try {
+          checkAllocation(lastItems);
+          allocationDone = { elapsed };
+          if (config.verbose) {
+            console.log(`    [poll] allocation: ok after ${elapsed.toFixed(1)}s (${compositeAttempts} checks)`);
+          }
+        } catch (error) {
+          if (!(error instanceof VerificationError)) {
+            throw error;
+          }
+        }
+      }
+
+      if (ordersDone && allocationDone) {
+        break;
+      }
+
+      if (!ordersDone && elapsed >= ordersTimeout) {
+        assertOrdersTableAlignment(lastSkuQuantities, caseDef.skuQuantities, oname); // raises the detailed error
+      }
+      if (!allocationDone && elapsed >= allocationTimeout) {
+        checkAllocation(lastItems); // raises the detailed error
+      }
+
+      printProgress(ordersDone ? "allocation" : "orders_table", elapsed);
+      await sleep(resolveInterval(compositeAttempts, dynamoInterval) * 1000);
+    }
+
+    stageDone("orders_table", ordersDone.elapsed);
+    stageDone("allocation", allocationDone.elapsed);
 
     // --- 6. Refund path (undeliverable cases) or no-refund check ------------
     if (Object.keys(caseDef.expectedRefundSkus).length > 0) {
@@ -174,9 +289,10 @@ export async function runCase(config: RegressionConfig, caseDef: CaseDefinition)
         () => shopifyReader.getOrder(shopify, record.orderId),
         (snap) => assertRefundForSkus(snap, caseDef.expectedRefundSkus),
         poll.refund,
-        poll.interval,
+        shopifyInterval,
         "refund",
         config.verbose,
+        (elapsed) => printProgress("refund", elapsed),
       );
       stageDone("refund", refund.elapsed);
 
@@ -184,9 +300,10 @@ export async function runCase(config: RegressionConfig, caseDef: CaseDefinition)
         () => dynamoReader.getShipmentItems(config.store, oidTail),
         (items) => assertItemsRemoved(items, caseDef.cleanupSkus, oname),
         poll.cleanup,
-        poll.interval,
+        dynamoInterval,
         "cleanup",
         config.verbose,
+        (elapsed) => printProgress("cleanup", elapsed),
       );
       stageDone("cleanup", cleanup.elapsed);
     } else {
@@ -200,9 +317,10 @@ export async function runCase(config: RegressionConfig, caseDef: CaseDefinition)
       () => dynamo.snapshotInventory(skus),
       (after) => assertDecrements(before, after, caseDef.expectedDecrements, oname),
       poll.inventory,
-      poll.interval,
+      dynamoInterval,
       "inventory",
       config.verbose,
+      (elapsed) => printProgress("inventory", elapsed),
     );
     stageDone("inventory", inventory.elapsed);
 
@@ -231,8 +349,22 @@ export async function runCase(config: RegressionConfig, caseDef: CaseDefinition)
   return result;
 }
 
-/** Runs the selected cases (default: all) sequentially. */
-export async function run(config: RegressionConfig = defaultConfig()): Promise<RunSummary> {
+/**
+ * Runs the selected cases (default: all) sequentially.
+ *
+ * `tracker`/`repeatIndex`/`totalRepeats` carry the live-progress-line state
+ * across repeats (TAA-14 Phase A step 4) — the CLI builds one tracker for
+ * the whole `--repeat N` run and passes it into every call so "run %" and
+ * the rolling per-stage-average ETA span the entire run, not just one
+ * repeat. Omit them to run standalone (e.g. a single one-off run) — a
+ * tracker scoped to just this call's cases is built automatically.
+ */
+export async function run(
+  config: RegressionConfig = defaultConfig(),
+  tracker?: ProgressTracker,
+  repeatIndex = 0,
+  totalRepeats = 1,
+): Promise<RunSummary> {
   validateConfig(config);
   const allCases = buildCases(config.store);
   const names = config.caseNames?.length ? config.caseNames : Object.keys(allCases);
@@ -241,17 +373,80 @@ export async function run(config: RegressionConfig = defaultConfig()): Promise<R
     throw new Error(`unknown case(s): ${JSON.stringify(unknown)}. Available: ${JSON.stringify(Object.keys(allCases))}`);
   }
 
-  const results: CaseResult[] = [];
-  for (const name of names) {
-    if (config.verbose) {
-      console.log(`\n=== case: ${name} (${config.store}) ===`);
-    }
-    results.push(await runCase(config, allCases[name]));
-  }
+  const resolvedTracker =
+    tracker ??
+    createProgressTracker(
+      buildRunPlan(names, (name) => Object.keys(allCases[name].expectedRefundSkus).length > 0, totalRepeats),
+      totalRepeats,
+      names.length,
+      Date.now(),
+    );
+
+  const results: CaseResult[] = config.parallel
+    ? await runCasesInWaves(config, names, allCases, resolvedTracker, repeatIndex)
+    : await runCasesSequentially(config, names, allCases, resolvedTracker, repeatIndex);
 
   return {
     store: config.store,
     cases: results,
     passed: results.every((r) => r.passed),
   };
+}
+
+async function runCasesSequentially(
+  config: RegressionConfig,
+  names: string[],
+  allCases: Record<string, CaseDefinition>,
+  tracker: ProgressTracker,
+  repeatIndex: number,
+): Promise<CaseResult[]> {
+  const results: CaseResult[] = [];
+  for (let caseIndex = 0; caseIndex < names.length; caseIndex += 1) {
+    const name = names[caseIndex];
+    if (config.verbose) {
+      console.log(`\n=== case: ${name} (${config.store}) ===`);
+    }
+    results.push(await runCase(config, allCases[name], { tracker, repeatIndex, caseIndex, totalCases: names.length }));
+  }
+  return results;
+}
+
+/**
+ * TAA-14 Phase B step 3: runs cases in SKU-disjoint waves, each wave bounded
+ * to config.parallelConcurrency simultaneous cases. Repeats are NOT handled
+ * here — the caller (cli.ts) keeps repeats serial by calling run() once per
+ * repeat; this only parallelizes the cases *within* one repeat.
+ */
+async function runCasesInWaves(
+  config: RegressionConfig,
+  names: string[],
+  allCases: Record<string, CaseDefinition>,
+  tracker: ProgressTracker,
+  repeatIndex: number,
+): Promise<CaseResult[]> {
+  const caseDefs = names.map((name) => allCases[name]);
+  const waves = buildWaves(caseDefs);
+  if (config.verbose) {
+    console.log(
+      `\n=== parallel run: ${names.length} case(s) in ${waves.length} wave(s), concurrency cap ${config.parallelConcurrency} ===`,
+    );
+  }
+
+  const resultByName = new Map<string, CaseResult>();
+  for (const [waveIndex, wave] of waves.entries()) {
+    if (config.verbose) {
+      console.log(`--- wave ${waveIndex + 1}/${waves.length}: ${wave.map((c) => c.name).join(", ")} ---`);
+    }
+    const waveResults = await runBounded(wave, config.parallelConcurrency, (caseDef) =>
+      runCase(config, caseDef, {
+        tracker,
+        repeatIndex,
+        caseIndex: names.indexOf(caseDef.name),
+        totalCases: names.length,
+      }),
+    );
+    waveResults.forEach((result) => resultByName.set(result.case, result));
+  }
+
+  return names.map((name) => resultByName.get(name)!);
 }

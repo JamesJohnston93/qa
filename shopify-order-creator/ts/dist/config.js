@@ -58,6 +58,8 @@ function defaultConfig() {
         verbose: true,
         help: false,
         listCases: false,
+        parallel: false,
+        parallelConcurrency: 4, // keep in sync with scheduler.ts's DEFAULT_PARALLEL_CONCURRENCY (not imported here to avoid a config<->scheduler<->baselineCases import cycle)
         awsRegion: process.env.AWS_REGION ?? "ap-southeast-2",
         awsProfile: process.env.AWS_PROFILE ?? "staging",
         inventoryTable: "staging-inventory-v2",
@@ -75,5 +77,8 @@ function validateConfig(config) {
     }
     if (config.repeat < 1) {
         throw new Error("repeat must be >= 1");
+    }
+    if (config.parallelConcurrency < 1) {
+        throw new Error("parallelConcurrency must be >= 1");
     }
 }

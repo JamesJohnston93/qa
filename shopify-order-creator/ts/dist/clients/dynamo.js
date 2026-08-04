@@ -11,9 +11,20 @@
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.DynamoClient = void 0;
+exports.chunk = chunk;
 const client_dynamodb_1 = require("@aws-sdk/client-dynamodb");
 const credential_providers_1 = require("@aws-sdk/credential-providers");
 const lib_dynamodb_1 = require("@aws-sdk/lib-dynamodb");
+/** Bounded-concurrency batch size for zeroEverywhere's writes (TAA-14 Phase A). */
+const ZERO_BATCH_SIZE = 25;
+/** Splits items into fixed-size chunks, preserving order. Pure — offline-testable. */
+function chunk(items, size) {
+    const out = [];
+    for (let i = 0; i < items.length; i += size) {
+        out.push(items.slice(i, i + size));
+    }
+    return out;
+}
 class DynamoClient {
     config;
     doc;
@@ -77,11 +88,19 @@ class DynamoClient {
             }
         }
     }
-    /** Sets quantity to 0 at every location row that exists for this SKU (forces undeliverable deterministically). */
+    /**
+     * Sets quantity to 0 at every location row that exists for this SKU
+     * (forces undeliverable deterministically). Writes go out in bounded
+     * batches (ZERO_BATCH_SIZE concurrent) rather than one at a time — with
+     * ~194 locations per SKU in staging this was the dominant cost of
+     * seed_inventory. Batches run in sequence so a failure in one batch still
+     * throws immediately (strict-failure preserved) without racing writes
+     * that haven't started yet.
+     */
     async zeroEverywhere(sku) {
         const locations = await this.getAllLocationsForSku(sku);
-        for (const location of locations) {
-            await this.setStock(sku, 0, location.store);
+        for (const batch of chunk(locations, ZERO_BATCH_SIZE)) {
+            await Promise.all(batch.map((location) => this.setStock(sku, 0, location.store)));
         }
     }
     /** Current quantity at every existing location for each SKU. */

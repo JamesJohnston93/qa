@@ -11,6 +11,8 @@
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.StageTimeout = void 0;
+exports.resolveInterval = resolveInterval;
+exports.sleep = sleep;
 exports.pollUntil = pollUntil;
 class StageTimeout extends Error {
     stage;
@@ -26,6 +28,22 @@ class StageTimeout extends Error {
     }
 }
 exports.StageTimeout = StageTimeout;
+const DEFAULT_RAMP = [1, 2, 3];
+/**
+ * Resolves the sleep interval (seconds) for the poll attempt just completed.
+ * A plain number is treated as a fixed interval (no ramp) — existing callers
+ * and offline tests that just want deterministic fast polling keep working
+ * unchanged. Pure — offline-testable.
+ */
+function resolveInterval(attempt, interval) {
+    if (typeof interval === "number") {
+        return interval;
+    }
+    const ramp = interval.ramp ?? DEFAULT_RAMP;
+    const min = interval.min ?? 0;
+    const step = attempt <= ramp.length ? ramp[attempt - 1] : interval.cap;
+    return Math.max(min, Math.min(step, interval.cap));
+}
 function describe(value) {
     try {
         return JSON.stringify(value);
@@ -50,7 +68,7 @@ function sleep(ms) {
  * something to retry past (retries for transient network errors belong in
  * the clients, not here).
  */
-async function pollUntil(fetch, predicate, timeout, interval, stage, verbose = false) {
+async function pollUntil(fetch, predicate, timeout, interval, stage, verbose = false, onWaiting) {
     const start = Date.now();
     let attempts = 0;
     let value;
@@ -68,9 +86,15 @@ async function pollUntil(fetch, predicate, timeout, interval, stage, verbose = f
         if (elapsed >= timeout) {
             throw new StageTimeout(stage, timeout, value);
         }
+        const sleepSeconds = resolveInterval(attempts, interval);
         if (verbose) {
-            console.log(`    [poll] ${stage}: waiting... (${elapsed.toFixed(0)}s / ${timeout.toFixed(0)}s)`);
+            if (onWaiting) {
+                onWaiting(elapsed, attempts);
+            }
+            else {
+                console.log(`    [poll] ${stage}: waiting... (${elapsed.toFixed(0)}s / ${timeout.toFixed(0)}s, next in ${sleepSeconds.toFixed(1)}s)`);
+            }
         }
-        await sleep(interval * 1000);
+        await sleep(sleepSeconds * 1000);
     }
 }

@@ -44,12 +44,14 @@ exports.runCase = runCase;
 exports.run = run;
 const config_1 = require("./config");
 const baselineCases_1 = require("./cases/baselineCases");
+const scheduler_1 = require("./scheduler");
 const orderFlow_1 = require("./flows/orderFlow");
 const dynamo_1 = require("./clients/dynamo");
 const shopify_1 = require("./clients/shopify");
 const dynamoReader_1 = require("./readers/dynamoReader");
 const shopifyReader = __importStar(require("./readers/shopifyReader"));
 const polling_1 = require("./polling");
+const progress_1 = require("./progress");
 const index_1 = require("./verify/index");
 const orders_1 = require("./verify/orders");
 const shipments_1 = require("./verify/shipments");
@@ -60,7 +62,7 @@ const inventory_1 = require("./verify/inventory");
  * re-throws the final VerificationError (full evidence) rather than a bare
  * timeout.
  */
-async function pollVerify(fetch, verifyFn, timeout, interval, stage, verbose) {
+async function pollVerify(fetch, verifyFn, timeout, interval, stage, verbose, onWaiting) {
     const predicate = (value) => {
         try {
             verifyFn(value);
@@ -74,7 +76,7 @@ async function pollVerify(fetch, verifyFn, timeout, interval, stage, verbose) {
         }
     };
     try {
-        return await (0, polling_1.pollUntil)(fetch, predicate, timeout, interval, stage, verbose);
+        return await (0, polling_1.pollUntil)(fetch, predicate, timeout, interval, stage, verbose, onWaiting);
     }
     catch (error) {
         if (error instanceof polling_1.StageTimeout) {
@@ -87,7 +89,7 @@ function round(value) {
     return Number(value.toFixed(1));
 }
 /** Executes one CaseDefinition. Returns a result (never throws). */
-async function runCase(config, caseDef) {
+async function runCase(config, caseDef, progress) {
     const result = {
         case: caseDef.name,
         store: config.store,
@@ -98,8 +100,37 @@ async function runCase(config, caseDef) {
         stages: [],
         error: null,
     };
+    // TAA-14 Phase A step 4: live progress line, updated per poll tick.
+    const hasRefund = Object.keys(caseDef.expectedRefundSkus).length > 0;
+    const caseStages = (0, progress_1.stageSequenceFor)(hasRefund);
+    const printProgress = (stageName, secondsInStage) => {
+        if (!config.verbose || !progress) {
+            return;
+        }
+        const { tracker, repeatIndex, caseIndex, totalCases } = progress;
+        const stageIndex = caseStages.indexOf(stageName);
+        console.log(`    ${(0, progress_1.formatProgressLine)({
+            repeatIndex,
+            totalRepeats: tracker.totalRepeats,
+            caseIndex,
+            totalCases,
+            caseName: caseDef.name,
+            stageIndex: stageIndex < 0 ? 0 : stageIndex,
+            totalCaseStages: caseStages.length,
+            stageName,
+            secondsInStage,
+            completedStages: tracker.completedStages,
+            totalStages: tracker.flatPlan.length,
+            elapsedSeconds: (Date.now() - tracker.runStart) / 1000,
+            etaSeconds: (0, progress_1.estimateRemainingSeconds)(tracker, secondsInStage),
+        })}`);
+    };
     const stageDone = (name, elapsed) => {
         result.stages.push({ name, elapsed: round(elapsed) });
+        if (progress) {
+            (0, progress_1.recordStageAverage)(progress.tracker.averages, name, elapsed);
+            progress.tracker.completedStages += 1;
+        }
         if (config.verbose) {
             console.log(`    [stage] ${name}: ok (${elapsed.toFixed(1)}s)`);
         }
@@ -108,6 +139,11 @@ async function runCase(config, caseDef) {
     const dynamoReader = new dynamoReader_1.DynamoReader(dynamo, config);
     const shopify = new shopify_1.ShopifyClient(config.store);
     const poll = config.poll;
+    // TAA-14 Phase A step 2: ramp 1s->2s->3s->cap poll.interval instead of a
+    // fixed sleep every tick. Shopify-touching stages keep a 2s floor even on
+    // the first poll to stay clear of rate limits.
+    const dynamoInterval = { cap: poll.interval };
+    const shopifyInterval = { cap: poll.interval, min: 2 };
     try {
         // --- 1. Seed inventory deterministically -------------------------------
         let t0 = Date.now();
@@ -123,24 +159,83 @@ async function runCase(config, caseDef) {
         const oidTail = shopifyReader.orderIdTail(record.orderId);
         const oname = record.orderName;
         // --- 3. Shopify read-back: exists, paid, items match --------------------
-        const readback = await pollVerify(() => shopifyReader.getOrder(shopify, record.orderId), (snap) => (0, orders_1.assertShopifyOrder)(snap, caseDef.skuQuantities), 60, poll.interval, "shopify_readback", config.verbose);
+        const readback = await pollVerify(() => shopifyReader.getOrder(shopify, record.orderId), (snap) => (0, orders_1.assertShopifyOrder)(snap, caseDef.skuQuantities), 60, shopifyInterval, "shopify_readback", config.verbose, (elapsed) => printProgress("shopify_readback", elapsed));
         stageDone("shopify_readback", readback.elapsed);
-        // --- 4. staging-orders-v2 row lands and matches -------------------------
-        const ordersTable = await pollVerify(() => dynamoReader.getOrderSkuQuantities(config.store, oidTail), (q) => (0, orders_1.assertOrdersTableAlignment)(q, caseDef.skuQuantities, oname), poll.ordersTable, poll.interval, "orders_table", config.verbose);
-        stageDone("orders_table", ordersTable.elapsed);
-        // --- 5. Shipment ITEM# rows: unit counts, then terminal allocation ------
+        // --- 4+5. orders-v2 row + shipment ITEM# rows: composite poll -----------
+        // TAA-14 Phase A step 3: both checks key off the same staging-orders-v2
+        // rows (allocation needs the order's PK, which lives there too), so one
+        // tick fetches those rows once and advances whichever of orders_table /
+        // allocation now passes — a stage that becomes true while the other is
+        // still pending is caught immediately instead of waiting for a fresh,
+        // separately-ramped poll cycle to start once the first stage finishes.
         const checkAllocation = (items) => {
             const summary = (0, dynamoReader_1.allocationSummary)(items);
             (0, shipments_1.assertUnitCounts)(summary, caseDef.skuQuantities, oname);
             (0, shipments_1.assertAllocation)(summary, caseDef.expectedAllocation, oname);
         };
-        const allocation = await pollVerify(() => dynamoReader.getShipmentItems(config.store, oidTail), checkAllocation, poll.shipmentsTable + poll.allocation, poll.interval, "allocation", config.verbose);
-        stageDone("allocation", allocation.elapsed);
+        const ordersTimeout = poll.ordersTable;
+        const allocationTimeout = poll.shipmentsTable + poll.allocation;
+        const compositeStart = Date.now();
+        let compositeAttempts = 0;
+        let ordersDone = null;
+        let allocationDone = null;
+        let resolvedPk = null;
+        let lastSkuQuantities = {};
+        let lastItems = [];
+        for (;;) {
+            const rows = await dynamoReader.getOrderRows(config.store, oidTail);
+            compositeAttempts += 1;
+            const elapsed = (Date.now() - compositeStart) / 1000;
+            if (!ordersDone) {
+                lastSkuQuantities = (0, dynamoReader_1.orderSkuQuantitiesFromRows)(rows);
+                try {
+                    (0, orders_1.assertOrdersTableAlignment)(lastSkuQuantities, caseDef.skuQuantities, oname);
+                    ordersDone = { elapsed };
+                    if (config.verbose) {
+                        console.log(`    [poll] orders_table: ok after ${elapsed.toFixed(1)}s (${compositeAttempts} checks)`);
+                    }
+                }
+                catch (error) {
+                    if (!(error instanceof index_1.VerificationError)) {
+                        throw error;
+                    }
+                }
+            }
+            resolvedPk = resolvedPk ?? (0, dynamoReader_1.orderPkFromRows)(rows);
+            if (!allocationDone && resolvedPk) {
+                lastItems = await dynamoReader.getShipmentItemsByPk(resolvedPk);
+                try {
+                    checkAllocation(lastItems);
+                    allocationDone = { elapsed };
+                    if (config.verbose) {
+                        console.log(`    [poll] allocation: ok after ${elapsed.toFixed(1)}s (${compositeAttempts} checks)`);
+                    }
+                }
+                catch (error) {
+                    if (!(error instanceof index_1.VerificationError)) {
+                        throw error;
+                    }
+                }
+            }
+            if (ordersDone && allocationDone) {
+                break;
+            }
+            if (!ordersDone && elapsed >= ordersTimeout) {
+                (0, orders_1.assertOrdersTableAlignment)(lastSkuQuantities, caseDef.skuQuantities, oname); // raises the detailed error
+            }
+            if (!allocationDone && elapsed >= allocationTimeout) {
+                checkAllocation(lastItems); // raises the detailed error
+            }
+            printProgress(ordersDone ? "allocation" : "orders_table", elapsed);
+            await (0, polling_1.sleep)((0, polling_1.resolveInterval)(compositeAttempts, dynamoInterval) * 1000);
+        }
+        stageDone("orders_table", ordersDone.elapsed);
+        stageDone("allocation", allocationDone.elapsed);
         // --- 6. Refund path (undeliverable cases) or no-refund check ------------
         if (Object.keys(caseDef.expectedRefundSkus).length > 0) {
-            const refund = await pollVerify(() => shopifyReader.getOrder(shopify, record.orderId), (snap) => (0, refunds_1.assertRefundForSkus)(snap, caseDef.expectedRefundSkus), poll.refund, poll.interval, "refund", config.verbose);
+            const refund = await pollVerify(() => shopifyReader.getOrder(shopify, record.orderId), (snap) => (0, refunds_1.assertRefundForSkus)(snap, caseDef.expectedRefundSkus), poll.refund, shopifyInterval, "refund", config.verbose, (elapsed) => printProgress("refund", elapsed));
             stageDone("refund", refund.elapsed);
-            const cleanup = await pollVerify(() => dynamoReader.getShipmentItems(config.store, oidTail), (items) => (0, shipments_1.assertItemsRemoved)(items, caseDef.cleanupSkus, oname), poll.cleanup, poll.interval, "cleanup", config.verbose);
+            const cleanup = await pollVerify(() => dynamoReader.getShipmentItems(config.store, oidTail), (items) => (0, shipments_1.assertItemsRemoved)(items, caseDef.cleanupSkus, oname), poll.cleanup, dynamoInterval, "cleanup", config.verbose, (elapsed) => printProgress("cleanup", elapsed));
             stageDone("cleanup", cleanup.elapsed);
         }
         else {
@@ -149,7 +244,7 @@ async function runCase(config, caseDef) {
             stageDone("no_refund", 0);
         }
         // --- 7. Inventory decremented exactly as expected -----------------------
-        const inventory = await pollVerify(() => dynamo.snapshotInventory(skus), (after) => (0, inventory_1.assertDecrements)(before, after, caseDef.expectedDecrements, oname), poll.inventory, poll.interval, "inventory", config.verbose);
+        const inventory = await pollVerify(() => dynamo.snapshotInventory(skus), (after) => (0, inventory_1.assertDecrements)(before, after, caseDef.expectedDecrements, oname), poll.inventory, dynamoInterval, "inventory", config.verbose, (elapsed) => printProgress("inventory", elapsed));
         stageDone("inventory", inventory.elapsed);
         result.passed = true;
     }
@@ -177,8 +272,17 @@ async function runCase(config, caseDef) {
     }
     return result;
 }
-/** Runs the selected cases (default: all) sequentially. */
-async function run(config = (0, config_1.defaultConfig)()) {
+/**
+ * Runs the selected cases (default: all) sequentially.
+ *
+ * `tracker`/`repeatIndex`/`totalRepeats` carry the live-progress-line state
+ * across repeats (TAA-14 Phase A step 4) — the CLI builds one tracker for
+ * the whole `--repeat N` run and passes it into every call so "run %" and
+ * the rolling per-stage-average ETA span the entire run, not just one
+ * repeat. Omit them to run standalone (e.g. a single one-off run) — a
+ * tracker scoped to just this call's cases is built automatically.
+ */
+async function run(config = (0, config_1.defaultConfig)(), tracker, repeatIndex = 0, totalRepeats = 1) {
     (0, config_1.validateConfig)(config);
     const allCases = (0, baselineCases_1.buildCases)(config.store);
     const names = config.caseNames?.length ? config.caseNames : Object.keys(allCases);
@@ -186,16 +290,52 @@ async function run(config = (0, config_1.defaultConfig)()) {
     if (unknown.length > 0) {
         throw new Error(`unknown case(s): ${JSON.stringify(unknown)}. Available: ${JSON.stringify(Object.keys(allCases))}`);
     }
-    const results = [];
-    for (const name of names) {
-        if (config.verbose) {
-            console.log(`\n=== case: ${name} (${config.store}) ===`);
-        }
-        results.push(await runCase(config, allCases[name]));
-    }
+    const resolvedTracker = tracker ??
+        (0, progress_1.createProgressTracker)((0, progress_1.buildRunPlan)(names, (name) => Object.keys(allCases[name].expectedRefundSkus).length > 0, totalRepeats), totalRepeats, names.length, Date.now());
+    const results = config.parallel
+        ? await runCasesInWaves(config, names, allCases, resolvedTracker, repeatIndex)
+        : await runCasesSequentially(config, names, allCases, resolvedTracker, repeatIndex);
     return {
         store: config.store,
         cases: results,
         passed: results.every((r) => r.passed),
     };
+}
+async function runCasesSequentially(config, names, allCases, tracker, repeatIndex) {
+    const results = [];
+    for (let caseIndex = 0; caseIndex < names.length; caseIndex += 1) {
+        const name = names[caseIndex];
+        if (config.verbose) {
+            console.log(`\n=== case: ${name} (${config.store}) ===`);
+        }
+        results.push(await runCase(config, allCases[name], { tracker, repeatIndex, caseIndex, totalCases: names.length }));
+    }
+    return results;
+}
+/**
+ * TAA-14 Phase B step 3: runs cases in SKU-disjoint waves, each wave bounded
+ * to config.parallelConcurrency simultaneous cases. Repeats are NOT handled
+ * here — the caller (cli.ts) keeps repeats serial by calling run() once per
+ * repeat; this only parallelizes the cases *within* one repeat.
+ */
+async function runCasesInWaves(config, names, allCases, tracker, repeatIndex) {
+    const caseDefs = names.map((name) => allCases[name]);
+    const waves = (0, scheduler_1.buildWaves)(caseDefs);
+    if (config.verbose) {
+        console.log(`\n=== parallel run: ${names.length} case(s) in ${waves.length} wave(s), concurrency cap ${config.parallelConcurrency} ===`);
+    }
+    const resultByName = new Map();
+    for (const [waveIndex, wave] of waves.entries()) {
+        if (config.verbose) {
+            console.log(`--- wave ${waveIndex + 1}/${waves.length}: ${wave.map((c) => c.name).join(", ")} ---`);
+        }
+        const waveResults = await (0, scheduler_1.runBounded)(wave, config.parallelConcurrency, (caseDef) => runCase(config, caseDef, {
+            tracker,
+            repeatIndex,
+            caseIndex: names.indexOf(caseDef.name),
+            totalCases: names.length,
+        }));
+        waveResults.forEach((result) => resultByName.set(result.case, result));
+    }
+    return names.map((name) => resultByName.get(name));
 }

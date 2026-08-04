@@ -1,6 +1,7 @@
 import { run, type RunSummary } from "./runner";
 import { writeReports } from "./report";
 import { buildCases } from "./cases/baselineCases";
+import { buildRunPlan, createProgressTracker } from "./progress";
 import { defaultConfig, validateConfig, type RegressionConfig, type Store } from "./config";
 
 export function printHelp(): void {
@@ -13,6 +14,8 @@ Options:
   --report-dir <path>     Output directory for reports (default: ./reports)
   --quiet                 Disable verbose output in the run summary
   --list-cases            Print the available baseline cases and exit
+  --parallel              Run SKU-disjoint cases concurrently (default: off, sequential)
+  --concurrency <n>       Max simultaneous cases within a wave under --parallel (default: 4)
   --help, -h              Show this help text
 `);
 }
@@ -45,6 +48,11 @@ export function parseArgs(argv: string[]): RegressionConfig {
       config.help = true;
     } else if (argument === "--list-cases") {
       config.listCases = true;
+    } else if (argument === "--parallel") {
+      config.parallel = true;
+    } else if (argument === "--concurrency" && argv[index + 1]) {
+      config.parallelConcurrency = Number(argv[index + 1]);
+      index += 1;
     }
   }
   return config;
@@ -66,12 +74,24 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
   }
   validateConfig(config);
 
+  // TAA-14 Phase A step 4: one tracker spans the whole --repeat N run, so
+  // "run %" and the rolling per-stage-average ETA in the live progress line
+  // reflect total progress, not just the current repeat.
+  const allCases = buildCases(config.store);
+  const names = config.caseNames?.length ? config.caseNames : Object.keys(allCases);
+  const plan = buildRunPlan(
+    names,
+    (name) => (allCases[name] ? Object.keys(allCases[name].expectedRefundSkus).length > 0 : false),
+    config.repeat,
+  );
+  const tracker = createProgressTracker(plan, config.repeat, names.length, Date.now());
+
   const runs: RunSummary[] = [];
   for (let i = 0; i < config.repeat; i += 1) {
     if (config.verbose && config.repeat > 1) {
       console.log(`\n######## repeat ${i + 1}/${config.repeat} ########`);
     }
-    runs.push(await run(config));
+    runs.push(await run(config, tracker, i, config.repeat));
   }
 
   const reportPaths = writeReports(config, runs);

@@ -77,6 +77,39 @@ function originFor(store: Store, orderIdTail: string): string {
   return `${store}#SHOPIFY_ECOM#${orderIdTail}`;
 }
 
+/**
+ * SKU -> total quantity from a set of staging-orders-v2 rows (one ITEM# row
+ * per unit). Pure — offline-testable, and lets the composite poll (TAA-14
+ * Phase A step 3) derive this from rows it already fetched instead of
+ * re-querying.
+ */
+export function orderSkuQuantitiesFromRows(rows: Record<string, unknown>[]): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const row of rows) {
+    if (!String(row.SK ?? "").startsWith("ITEM#")) {
+      continue;
+    }
+    const sku = String(row.sku ?? "");
+    if (sku) {
+      out[sku] = (out[sku] ?? 0) + 1;
+    }
+  }
+  return out;
+}
+
+/**
+ * The shared internal order UUID (PK) from a set of staging-orders-v2 rows,
+ * or null if the order hasn't landed at all. Pure — see
+ * orderSkuQuantitiesFromRows for why this is split out.
+ */
+export function orderPkFromRows(rows: Record<string, unknown>[]): string | null {
+  if (rows.length === 0) {
+    return null;
+  }
+  const orderRow = rows.find((row) => row.SK === "ORDER");
+  return String((orderRow ?? rows[0]).PK);
+}
+
 export class DynamoReader {
   constructor(
     private readonly dynamo: DynamoClient,
@@ -99,27 +132,13 @@ export class DynamoReader {
   /** SKU -> total quantity for the order as recorded in staging-orders-v2 (one ITEM# row per unit). */
   async getOrderSkuQuantities(store: Store, orderIdTail: string): Promise<Record<string, number>> {
     const rows = await this.getOrderRows(store, orderIdTail);
-    const out: Record<string, number> = {};
-    for (const row of rows) {
-      if (!String(row.SK ?? "").startsWith("ITEM#")) {
-        continue;
-      }
-      const sku = String(row.sku ?? "");
-      if (sku) {
-        out[sku] = (out[sku] ?? 0) + 1;
-      }
-    }
-    return out;
+    return orderSkuQuantitiesFromRows(rows);
   }
 
   /** The shared internal order UUID (PK) used by both tables, resolved via staging-orders-v2. Null if not landed yet. */
   async getOrderPk(store: Store, orderIdTail: string): Promise<string | null> {
     const rows = await this.getOrderRows(store, orderIdTail);
-    if (rows.length === 0) {
-      return null;
-    }
-    const orderRow = rows.find((row) => row.SK === "ORDER");
-    return String((orderRow ?? rows[0]).PK);
+    return orderPkFromRows(rows);
   }
 
   /**
@@ -134,6 +153,16 @@ export class DynamoReader {
     if (!pk) {
       return [];
     }
+    return this.getShipmentItemsByPk(pk);
+  }
+
+  /**
+   * Same as getShipmentItems, but for a PK already resolved by the caller —
+   * lets the composite orders_table+allocation poll (TAA-14 Phase A step 3)
+   * resolve the PK once from rows it already fetched, instead of every
+   * allocation tick re-querying staging-orders-v2 just to re-derive it.
+   */
+  async getShipmentItemsByPk(pk: string): Promise<ShipmentItem[]> {
     const result = await this.dynamo.doc.send(
       new QueryCommand({
         TableName: this.config.shipmentsTable,
