@@ -1,7 +1,6 @@
 "use strict";
 /**
- * Shopify order read-back for verification. Ports
- * regression/readers/shopify_reader.py.
+ * Shopify order read-back for verification.
  *
  * NOTE: Shopify merges duplicate line items (3x same SKU = one line item
  * with quantity 3). DynamoDB and NewStore keep one row per unit. Assertions

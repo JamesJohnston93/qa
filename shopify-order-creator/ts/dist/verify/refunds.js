@@ -1,5 +1,5 @@
 "use strict";
-/** Undeliverable -> Shopify refund checks. Ports regression/verify/refunds.py. */
+/** Undeliverable -> Shopify refund checks. */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.assertRefundForSkus = assertRefundForSkus;
 exports.assertNoRefund = assertNoRefund;

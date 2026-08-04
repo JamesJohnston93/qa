@@ -1,5 +1,5 @@
 "use strict";
-/** Shopify order <-> staging-orders-v2 alignment checks. Ports regression/verify/orders.py. */
+/** Shopify order <-> staging-orders-v2 alignment checks. */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.assertShopifyOrder = assertShopifyOrder;
 exports.assertOrdersTableAlignment = assertOrdersTableAlignment;

@@ -1,7 +1,7 @@
 "use strict";
 /**
  * Sales-receipt generation for NewStore-injected orders (TAA-17 receipt
- * decision: PORT — recorded 2026-07-31, per JJ). Ports receipt_service.py.
+ * decision: PORT — recorded 2026-07-31, per JJ).
  *
  * NewStore only creates a Documents-section receipt via its own NOM app
  * checkout flow — an order injected via POST /v0/d/fulfill_order never
@@ -13,18 +13,16 @@
  * Deliberately NON-FATAL by design (per JJ, 2026-07-31) — unlike the rest of
  * this harness, which is strict-by-default. A receipt decorates an
  * already-successful order; it isn't a correctness check, so a render
- * failure falls back to a text-only note instead of throwing, matching the
- * Python original's intent. This is a standalone utility (also per JJ) —
- * NOT wired into the automated ns_sfs/ns_otc regression cases, which stay
- * side-effect-free on every run/repeat.
+ * failure falls back to a text-only note instead of throwing. Standalone
+ * utility — NOT wired into the automated ns_sfs/ns_otc regression cases,
+ * which stay side-effect-free on every run/repeat.
  *
- * Two known bugs from the Python original are fixed in this port (CLAUDE.md
- * gotcha #5): shipping was hardcoded to 10.0 instead of the real 9.99
- * charged, and the store name was hardcoded to "Universal Store" even for
- * Perfect Stranger orders. Also fixed: customer_name was hardcoded to the
- * old "Jared Davis" identity — stale since the QA customer identity was
- * renamed everywhere else in the codebase (2026-07-22); this module was
- * missed at the time.
+ * Three stale/hardcoded values fixed while building this: shipping was
+ * hardcoded to 10.0 instead of the real 9.99 charged; store name was
+ * hardcoded to "Universal Store" even for Perfect Stranger orders;
+ * customer_name was hardcoded to the old "Jared Davis" identity (stale
+ * since the QA customer identity was renamed everywhere else in the
+ * codebase, 2026-07-22).
  */
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
@@ -123,8 +121,8 @@ exports.ReceiptService = ReceiptService;
 /**
  * Fetches product name + EAN for each SKU from the NewStore Customer API
  * (GET /v0/c/products/sku={sku}). Missing/failed SKUs are omitted — callers
- * fall back to the raw SKU as the display label. Non-fatal per SKU, matching
- * the Python original: one bad lookup never blocks the rest.
+ * fall back to the raw SKU as the display label. Non-fatal per SKU: one bad
+ * lookup never blocks the rest.
  */
 async function lookupCatalogInfo(client, store, skus) {
     const shop = (0, newstoreOrders_1.shopIdFor)(store);
@@ -201,8 +199,8 @@ function buildRenderData(params) {
         shipping_method: includeShipping ? "shipping" : "in_store_handover",
         payment_method_label: "Cash",
         // payment_method must be "credit_card" — the template has a cash-specific
-        // code path that crashes (confirmed against the Python original); brand
-        // label is set to "Cash" so the rendered receipt still reads correctly.
+        // code path that crashes; brand label is set to "Cash" so the rendered
+        // receipt still reads correctly.
         instruments: [
             {
                 instrument_id: "00000000-0000-0000-0000-000000000000",

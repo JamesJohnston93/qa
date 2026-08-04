@@ -1,7 +1,6 @@
 "use strict";
 /**
  * Run reports: JSON artifact (diffable between runs) + markdown summary.
- * Ports regression/report.py.
  *
  * The JSON is the consistency signal: --repeat N runs the identical set N
  * times and diffs the *stable signatures* of each run (pass/fail + failing

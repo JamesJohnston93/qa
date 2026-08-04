@@ -1,5 +1,5 @@
 "use strict";
-/** Inventory decrement checks against staging-inventory-v2. Ports regression/verify/inventory.py. */
+/** Inventory decrement checks against staging-inventory-v2. */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.assertDecrements = assertDecrements;
 const config_1 = require("../config");

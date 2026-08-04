@@ -1,13 +1,12 @@
 "use strict";
 /**
  * Order lifecycle orchestration: inventory seeding and headless order
- * creation that returns every identifier verification needs. Ports the
- * relevant parts of regression/flows.py. Bypasses main.py entirely — no
- * input(), no CLI globals.
+ * creation that returns every identifier verification needs. No input(),
+ * no CLI/module globals — everything needed is passed in via config.
  *
- * NewStore is intentionally not called here: cases 1-6 are Shopify-only
- * (matching flows.create_shopify_order). NS SFS/OTC cases (7-8) are not yet
- * wired into the runner — see cases/baselineCases.ts.
+ * NewStore is intentionally not called here: this flow is Shopify-only. NS
+ * SFS/OTC cases run through a separate path (cases/newstoreCases.ts +
+ * runner.ts's runNewStoreCase) since NS orders never touch Shopify at all.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.prepareInventory = prepareInventory;

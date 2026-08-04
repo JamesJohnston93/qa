@@ -1,5 +1,5 @@
 "use strict";
-/** Allocation-state checks against staging-shipments ITEM# rows. Ports regression/verify/shipments.py. */
+/** Allocation-state checks against staging-shipments ITEM# rows. */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.assertUnitCounts = assertUnitCounts;
 exports.assertAllocation = assertAllocation;

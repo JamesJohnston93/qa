@@ -1,5 +1,5 @@
 "use strict";
-/** SKU -> Shopify variant GID maps for each staging store. Ported from orders_processor.py. */
+/** SKU -> Shopify variant GID maps for each staging store. */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.PS_SKU_ORDER = exports.US_SKU_ORDER = exports.PS_VARIANTS = exports.US_VARIANTS = void 0;
 exports.variantsFor = variantsFor;
@@ -34,14 +34,12 @@ function variantsFor(store) {
 }
 /**
  * Declared SKU order per store, used by cases/baselineCases.ts's sku(i)
- * lookup. NOT derived via Object.keys(US_VARIANTS)/Object.keys(PS_VARIANTS):
- * these SKUs are all canonical-integer strings (e.g. "32625134"), and
- * JavaScript's own-property enumeration order sorts integer-index-like keys
- * ascending numerically regardless of declaration order — unlike Python
- * dicts, which always preserve insertion order. Object.keys() here would
- * silently reorder the pool (confirmed live: sku(0) resolved to "32357875",
- * the numerically-smallest key, instead of the first-declared "32625134"),
- * breaking parity with the Python reference's case-to-SKU assignment.
+ * lookup — NOT derived via Object.keys(US_VARIANTS)/Object.keys(PS_VARIANTS).
+ * These SKUs are canonical-integer strings (e.g. "32625134"), and JS's
+ * own-property enumeration sorts integer-index-like keys ascending
+ * numerically regardless of declaration order. Object.keys() here would
+ * silently reorder the pool — confirmed live: sku(0) resolved to "32357875"
+ * (numerically smallest) instead of the first-declared "32625134".
  */
 exports.US_SKU_ORDER = [
     "32625134",

@@ -1,7 +1,6 @@
 "use strict";
 /**
- * Shopify order placement via the Admin GraphQL API. Ports the relevant
- * parts of orders_processor.py's draft-order lifecycle (create -> calculate
+ * Shopify order placement via the Admin GraphQL API (draft -> calculate
  * shipping -> complete) for Universal Store (US) / Perfect Stranger (PS)
  * staging.
  *
@@ -75,9 +74,10 @@ class ShopifyClient {
     /**
      * No customerId is passed: Shopify creates/attaches a customer from
      * `customerEmail` automatically on first use of that email (confirmed by
-     * JJ — this is intended, not a fallback). Every regression run reuses the
-     * same per-store QA-automation email (config.BASELINE_CUSTOMERS), so the
-     * customer is only actually created once, on the very first order.
+     * JJ — this is intended, not a fallback). The regression suite and the
+     * ad-hoc `order` command both default to the same per-store QA-automation
+     * email (config.BASELINE_CUSTOMERS), so that customer is only actually
+     * created once, on its very first order.
      */
     async createDraftOrder(customerEmail, lineItems, firstName, lastName, delivery) {
         const input = {
@@ -89,8 +89,7 @@ class ShopifyClient {
             lineItems,
         };
         if (delivery?.type === "pickup") {
-            // Local pickup: no shippingAddress/shippingLine, matches
-            // orders_processor.create_draft_order's PREFERRED_PICKUP_LOCATION_ID path.
+            // Local pickup: no shippingAddress/shippingLine needed.
             input.deliveryMethod = { methodType: "LOCAL", locationId: delivery.locationId };
         }
         else {
@@ -128,7 +127,7 @@ class ShopifyClient {
             createdAt: draft?.createdAt ?? "",
         };
     }
-    /** Mirrors orders_processor.py's _calculate_shipping_rates: calculates real rates without saving anything. */
+    /** Calculates real shipping rates without saving anything (draftOrderCalculate is read-only). */
     async fetchShippingRates(customerEmail, lineItems, firstName, lastName) {
         const result = await this.execute(DRAFT_ORDER_CALCULATE, {
             input: {
@@ -147,12 +146,12 @@ class ShopifyClient {
         }
         return rates;
     }
-    /** Mirrors orders_processor.fetch_shipping_rates with no preferred rate set: first available. */
+    /** No delivery override: just the first available rate. */
     async fetchShippingRateHandle(customerEmail, lineItems, firstName, lastName) {
         const rates = await this.fetchShippingRates(customerEmail, lineItems, firstName, lastName);
         return rates[0].handle;
     }
-    /** Mirrors orders_processor.fetch_shipping_rates's PREFERRED_SHIPPING_RATE path: exact title match, or throw with the available list. */
+    /** Exact title match against available rates, or throw listing what's actually available. */
     async fetchNamedShippingRateHandle(customerEmail, lineItems, firstName, lastName, title) {
         const rates = await this.fetchShippingRates(customerEmail, lineItems, firstName, lastName);
         const match = rates.find((rate) => rate.title === title);
@@ -161,7 +160,7 @@ class ShopifyClient {
         }
         return match.handle;
     }
-    /** Ports orders_processor.get_pickup_locations / graphql_scripts.get_locations: fulfilment locations for click-and-collect. */
+    /** Fulfilment locations available for click-and-collect delivery. */
     async fetchPickupLocations() {
         const result = await this.execute(LOCATIONS, {});
         if (result.errors && result.errors.length > 0) {
@@ -171,8 +170,7 @@ class ShopifyClient {
         return edges.map((edge) => edge.node);
     }
     /**
-     * Batch price lookup by variant GID (ports orders_processor.get_shopify_prices
-     * / graphql_scripts.get_variant_prices). Used by NewStore order injection so
+     * Batch price lookup by variant GID. Used by NewStore order injection so
      * an order's total matches the real Shopify RRP. Returns only GIDs Shopify
      * actually resolved — a null `nodes` entry with no accompanying error
      * (unknown/deleted variant) is silently omitted, not defaulted; callers

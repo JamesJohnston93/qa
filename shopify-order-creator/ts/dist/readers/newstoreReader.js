@@ -1,10 +1,9 @@
 "use strict";
 /**
  * NewStore order read-back for verification (TAA-17 step 3, NS cases 7-8).
- *
- * No Python spec to port here: the retired regression/readers/newstore_reader.py
- * was only ever a TODO stub guessing at the read endpoint. The real endpoint
- * was confirmed live 2026-07-22 (see CLAUDE.md): GET
+ * Built from scratch — the retired Python regression package's reader for
+ * this never got past guessing at the endpoint. The real endpoint was
+ * confirmed live 2026-07-22 (see CLAUDE.md): GET
  * /v0/d/external_orders/{external_id}, ~2s propagation after injection,
  * response has order_uuid, order_id (display id), and ordered_products[]
  * with product_sku/quantity/item_id.

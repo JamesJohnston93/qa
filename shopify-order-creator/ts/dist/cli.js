@@ -75,10 +75,7 @@ function parseArgs(argv) {
     }
     return config;
 }
-/**
- * Exit codes (matching python -m regression's contract): 0 = all cases
- * passed and repeats consistent; 1 = any failure or repeat variance.
- */
+/** Exit codes: 0 = all cases passed and repeats consistent; 1 = any failure or repeat variance. */
 async function runCli(argv = process.argv.slice(2)) {
     const config = parseArgs(argv);
     if (config.help) {

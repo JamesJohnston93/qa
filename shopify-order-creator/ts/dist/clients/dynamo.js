@@ -1,13 +1,11 @@
 "use strict";
 /**
- * DynamoDB access to staging-inventory-v2 (ports aws_inventory.py / the
- * flows.py inventory helpers). Read-only access to staging-orders-v2 and
- * staging-shipments lives in readers/dynamoReader.ts, which is schema-guarded
- * separately (TABLE_SCHEMAS there is unconfirmed until the schema probe runs).
+ * DynamoDB access to staging-inventory-v2 (stock read/write/seed). Read-only
+ * access to staging-orders-v2/staging-shipments (confirmed schema) lives
+ * separately in readers/dynamoReader.ts.
  *
- * Failures always throw here — no soft/silent mode. The Python CLI's
- * `ensure_stock` swallow-on-error behaviour is a CLI-only convenience; the
- * regression harness treats every AWS failure as a hard failure by design.
+ * Failures always throw here — no soft/silent mode, no swallow-and-continue
+ * fallback. Every AWS failure is a hard failure by design.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.DynamoClient = void 0;
