@@ -196,7 +196,7 @@ function buildItems(skus: string[], prices: Record<string, number>): Array<Recor
  * a repeated entry only has one price, but must contribute to the total once
  * per unit ordered.
  */
-function calculateTotal(skus: string[], prices: Record<string, number>, includeShipping: boolean): number {
+export function calculateTotal(skus: string[], prices: Record<string, number>, includeShipping: boolean): number {
   const itemTotal = skus.reduce((sum, sku) => sum + prices[sku], 0);
   const shipping = includeShipping ? NS_CONFIG.defaultShippingPrice : 0;
   return round2(itemTotal + shipping);
@@ -219,7 +219,7 @@ function buildCashPayment(totalAmount: number, timestamp: string): Record<string
  * strict: an unpriceable SKU fails the whole injection rather than silently
  * skewing the order total).
  */
-async function lookupPrices(
+export async function lookupPrices(
   shopify: ShopifyClient,
   store: Store,
   skus: string[],

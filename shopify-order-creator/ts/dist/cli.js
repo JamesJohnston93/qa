@@ -23,6 +23,9 @@ Options:
   --parallel              Run SKU-disjoint cases concurrently (default: off, sequential)
   --concurrency <n>       Max simultaneous cases within a wave under --parallel (default: 4)
   --help, -h              Show this help text
+
+For ad-hoc order placement (not a regression run), use the "order" subcommand:
+  node dist/index.js order --help
 `);
 }
 function printCases(store = "US") {
