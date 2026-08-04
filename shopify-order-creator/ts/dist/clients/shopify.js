@@ -79,20 +79,28 @@ class ShopifyClient {
      * same per-store QA-automation email (config.BASELINE_CUSTOMERS), so the
      * customer is only actually created once, on the very first order.
      */
-    async createDraftOrder(customerEmail, lineItems, firstName, lastName) {
-        const shippingRateHandle = await this.fetchShippingRateHandle(customerEmail, lineItems, firstName, lastName);
-        const result = await this.execute(DRAFT_ORDER_CREATE, {
-            input: {
-                note: "QA regression order",
-                email: customerEmail,
-                taxExempt: false,
-                tags: ["foo", "bar"],
-                billingAddress: mockAddress(firstName, lastName),
-                shippingAddress: mockAddress(firstName, lastName),
-                lineItems,
-                shippingLine: { shippingRateHandle },
-            },
-        });
+    async createDraftOrder(customerEmail, lineItems, firstName, lastName, delivery) {
+        const input = {
+            note: "QA regression order",
+            email: customerEmail,
+            taxExempt: false,
+            tags: ["foo", "bar"],
+            billingAddress: mockAddress(firstName, lastName),
+            lineItems,
+        };
+        if (delivery?.type === "pickup") {
+            // Local pickup: no shippingAddress/shippingLine, matches
+            // orders_processor.create_draft_order's PREFERRED_PICKUP_LOCATION_ID path.
+            input.deliveryMethod = { methodType: "LOCAL", locationId: delivery.locationId };
+        }
+        else {
+            const shippingRateHandle = delivery?.type === "rate"
+                ? await this.fetchNamedShippingRateHandle(customerEmail, lineItems, firstName, lastName, delivery.title)
+                : await this.fetchShippingRateHandle(customerEmail, lineItems, firstName, lastName);
+            input.shippingAddress = mockAddress(firstName, lastName);
+            input.shippingLine = { shippingRateHandle };
+        }
+        const result = await this.execute(DRAFT_ORDER_CREATE, { input });
         const errors = result.data?.draftOrderCreate.userErrors ?? [];
         if (errors.length > 0) {
             throw new Error(`draftOrderCreate failed: ${JSON.stringify(errors)}`);
@@ -120,8 +128,8 @@ class ShopifyClient {
             createdAt: draft?.createdAt ?? "",
         };
     }
-    /** Mirrors orders_processor.fetch_shipping_rates: calculates real rates and returns the first handle. */
-    async fetchShippingRateHandle(customerEmail, lineItems, firstName, lastName) {
+    /** Mirrors orders_processor.py's _calculate_shipping_rates: calculates real rates without saving anything. */
+    async fetchShippingRates(customerEmail, lineItems, firstName, lastName) {
         const result = await this.execute(DRAFT_ORDER_CALCULATE, {
             input: {
                 email: customerEmail,
@@ -137,7 +145,30 @@ class ShopifyClient {
         if (rates.length === 0) {
             throw new Error("draftOrderCalculate returned no shipping rates for this order");
         }
+        return rates;
+    }
+    /** Mirrors orders_processor.fetch_shipping_rates with no preferred rate set: first available. */
+    async fetchShippingRateHandle(customerEmail, lineItems, firstName, lastName) {
+        const rates = await this.fetchShippingRates(customerEmail, lineItems, firstName, lastName);
         return rates[0].handle;
+    }
+    /** Mirrors orders_processor.fetch_shipping_rates's PREFERRED_SHIPPING_RATE path: exact title match, or throw with the available list. */
+    async fetchNamedShippingRateHandle(customerEmail, lineItems, firstName, lastName, title) {
+        const rates = await this.fetchShippingRates(customerEmail, lineItems, firstName, lastName);
+        const match = rates.find((rate) => rate.title === title);
+        if (!match) {
+            throw new Error(`Shipping rate "${title}" not found. Available: ${JSON.stringify(rates.map((r) => r.title))}`);
+        }
+        return match.handle;
+    }
+    /** Ports orders_processor.get_pickup_locations / graphql_scripts.get_locations: fulfilment locations for click-and-collect. */
+    async fetchPickupLocations() {
+        const result = await this.execute(LOCATIONS, {});
+        if (result.errors && result.errors.length > 0) {
+            throw new Error(`locations query failed: ${JSON.stringify(result.errors)}`);
+        }
+        const edges = result.data?.locations.edges ?? [];
+        return edges.map((edge) => edge.node);
     }
     /**
      * Batch price lookup by variant GID (ports orders_processor.get_shopify_prices
@@ -238,6 +269,15 @@ const DRAFT_ORDER_COMPLETE = `
         order { id name }
       }
       userErrors { field message }
+    }
+  }
+`;
+const LOCATIONS = `
+  query {
+    locations(first: 20) {
+      edges {
+        node { id name }
+      }
     }
   }
 `;

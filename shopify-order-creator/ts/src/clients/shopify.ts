@@ -32,6 +32,15 @@ export interface ShopifyOrderResult {
   createdAt: string;
 }
 
+/**
+ * Optional delivery override for createDraftOrder (TAA-15 ad-hoc order
+ * command). Omitted entirely = today's behaviour, unchanged: first available
+ * shipping rate. Ports orders_processor.py's PREFERRED_SHIPPING_RATE /
+ * PREFERRED_PICKUP_LOCATION_ID, but as an explicit per-call param instead of
+ * module-global state.
+ */
+export type DeliverySelection = { type: "rate"; title: string } | { type: "pickup"; locationId: string };
+
 interface GraphQLError {
   message: string;
   extensions?: { code?: string };
@@ -118,26 +127,36 @@ export class ShopifyClient {
     lineItems: ShopifyLineItemInput[],
     firstName: string,
     lastName: string,
+    delivery?: DeliverySelection,
   ): Promise<ShopifyOrderResult> {
-    const shippingRateHandle = await this.fetchShippingRateHandle(customerEmail, lineItems, firstName, lastName);
+    const input: Record<string, unknown> = {
+      note: "QA regression order",
+      email: customerEmail,
+      taxExempt: false,
+      tags: ["foo", "bar"],
+      billingAddress: mockAddress(firstName, lastName),
+      lineItems,
+    };
+
+    if (delivery?.type === "pickup") {
+      // Local pickup: no shippingAddress/shippingLine, matches
+      // orders_processor.create_draft_order's PREFERRED_PICKUP_LOCATION_ID path.
+      input.deliveryMethod = { methodType: "LOCAL", locationId: delivery.locationId };
+    } else {
+      const shippingRateHandle =
+        delivery?.type === "rate"
+          ? await this.fetchNamedShippingRateHandle(customerEmail, lineItems, firstName, lastName, delivery.title)
+          : await this.fetchShippingRateHandle(customerEmail, lineItems, firstName, lastName);
+      input.shippingAddress = mockAddress(firstName, lastName);
+      input.shippingLine = { shippingRateHandle };
+    }
 
     const result = await this.execute<{
       draftOrderCreate: {
         draftOrder?: { id?: string };
         userErrors: Array<{ field: string[]; message: string }>;
       };
-    }>(DRAFT_ORDER_CREATE, {
-      input: {
-        note: "QA regression order",
-        email: customerEmail,
-        taxExempt: false,
-        tags: ["foo", "bar"],
-        billingAddress: mockAddress(firstName, lastName),
-        shippingAddress: mockAddress(firstName, lastName),
-        lineItems,
-        shippingLine: { shippingRateHandle },
-      },
-    });
+    }>(DRAFT_ORDER_CREATE, { input });
 
     const errors = result.data?.draftOrderCreate.userErrors ?? [];
     if (errors.length > 0) {
@@ -182,13 +201,13 @@ export class ShopifyClient {
     };
   }
 
-  /** Mirrors orders_processor.fetch_shipping_rates: calculates real rates and returns the first handle. */
-  private async fetchShippingRateHandle(
+  /** Mirrors orders_processor.py's _calculate_shipping_rates: calculates real rates without saving anything. */
+  private async fetchShippingRates(
     customerEmail: string,
     lineItems: ShopifyLineItemInput[],
     firstName: string,
     lastName: string,
-  ): Promise<string> {
+  ): Promise<Array<{ handle: string; title: string }>> {
     const result = await this.execute<{
       draftOrderCalculate: {
         calculatedDraftOrder?: {
@@ -212,7 +231,47 @@ export class ShopifyClient {
     if (rates.length === 0) {
       throw new Error("draftOrderCalculate returned no shipping rates for this order");
     }
+    return rates;
+  }
+
+  /** Mirrors orders_processor.fetch_shipping_rates with no preferred rate set: first available. */
+  private async fetchShippingRateHandle(
+    customerEmail: string,
+    lineItems: ShopifyLineItemInput[],
+    firstName: string,
+    lastName: string,
+  ): Promise<string> {
+    const rates = await this.fetchShippingRates(customerEmail, lineItems, firstName, lastName);
     return rates[0].handle;
+  }
+
+  /** Mirrors orders_processor.fetch_shipping_rates's PREFERRED_SHIPPING_RATE path: exact title match, or throw with the available list. */
+  private async fetchNamedShippingRateHandle(
+    customerEmail: string,
+    lineItems: ShopifyLineItemInput[],
+    firstName: string,
+    lastName: string,
+    title: string,
+  ): Promise<string> {
+    const rates = await this.fetchShippingRates(customerEmail, lineItems, firstName, lastName);
+    const match = rates.find((rate) => rate.title === title);
+    if (!match) {
+      throw new Error(`Shipping rate "${title}" not found. Available: ${JSON.stringify(rates.map((r) => r.title))}`);
+    }
+    return match.handle;
+  }
+
+  /** Ports orders_processor.get_pickup_locations / graphql_scripts.get_locations: fulfilment locations for click-and-collect. */
+  async fetchPickupLocations(): Promise<Array<{ id: string; name: string }>> {
+    const result = await this.execute<{ locations: { edges: Array<{ node: { id: string; name: string } }> } }>(
+      LOCATIONS,
+      {},
+    );
+    if (result.errors && result.errors.length > 0) {
+      throw new Error(`locations query failed: ${JSON.stringify(result.errors)}`);
+    }
+    const edges = result.data?.locations.edges ?? [];
+    return edges.map((edge) => edge.node);
   }
 
   /**
@@ -321,6 +380,16 @@ const DRAFT_ORDER_COMPLETE = `
         order { id name }
       }
       userErrors { field message }
+    }
+  }
+`;
+
+const LOCATIONS = `
+  query {
+    locations(first: 20) {
+      edges {
+        node { id name }
+      }
     }
   }
 `;
