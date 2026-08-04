@@ -8,17 +8,18 @@ const runner_1 = require("./runner");
 const report_1 = require("./report");
 const baselineCases_1 = require("./cases/baselineCases");
 const progress_1 = require("./progress");
+const newstoreCases_1 = require("./cases/newstoreCases");
 const config_1 = require("./config");
 function printHelp() {
     console.log(`Usage: node dist/index.js [options]
 
 Options:
   --store <US|PS>         Target store (default: US)
-  --cases <name[,name]>   Comma-separated case names (single,multi,split,undeliverable)
+  --cases <name[,name]>   Comma-separated case names (single,multi,split,undeliverable,ns_sfs,ns_otc)
   --repeat <n>            Number of repeats (default: 1)
   --report-dir <path>     Output directory for reports (default: ./reports)
   --quiet                 Disable verbose output in the run summary
-  --list-cases            Print the available baseline cases and exit
+  --list-cases            Print the available cases and exit
   --parallel              Run SKU-disjoint cases concurrently (default: off, sequential)
   --concurrency <n>       Max simultaneous cases within a wave under --parallel (default: 4)
   --help, -h              Show this help text
@@ -26,6 +27,9 @@ Options:
 }
 function printCases(store = "US") {
     for (const entry of Object.values((0, baselineCases_1.buildCases)(store))) {
+        console.log(`- ${entry.name}: ${entry.description}`);
+    }
+    for (const entry of Object.values((0, newstoreCases_1.buildNewStoreCases)(store))) {
         console.log(`- ${entry.name}: ${entry.description}`);
     }
 }
@@ -85,11 +89,17 @@ async function runCli(argv = process.argv.slice(2)) {
     (0, config_1.validateConfig)(config);
     // TAA-14 Phase A step 4: one tracker spans the whole --repeat N run, so
     // "run %" and the rolling per-stage-average ETA in the live progress line
-    // reflect total progress, not just the current repeat.
+    // reflect total progress, not just the current repeat. The tracker only
+    // plans "pipeline"-kind cases (Shopify/Dynamo stage sequences) — NewStore
+    // cases are a separate 2-stage round trip (see runner.ts's run()) and
+    // aren't part of this ETA math.
     const allCases = (0, baselineCases_1.buildCases)(config.store);
-    const names = config.caseNames?.length ? config.caseNames : Object.keys(allCases);
-    const plan = (0, progress_1.buildRunPlan)(names, (name) => (allCases[name] ? Object.keys(allCases[name].expectedRefundSkus).length > 0 : false), config.repeat);
-    const tracker = (0, progress_1.createProgressTracker)(plan, config.repeat, names.length, Date.now());
+    const allNewStoreCases = (0, newstoreCases_1.buildNewStoreCases)(config.store);
+    const allDefs = { ...allCases, ...allNewStoreCases };
+    const names = config.caseNames?.length ? config.caseNames : Object.keys(allDefs);
+    const pipelineNames = names.filter((name) => allDefs[name]?.kind === "pipeline");
+    const plan = (0, progress_1.buildRunPlan)(pipelineNames, (name) => Object.keys(allCases[name].expectedRefundSkus).length > 0, config.repeat);
+    const tracker = (0, progress_1.createProgressTracker)(plan, config.repeat, pipelineNames.length, Date.now());
     const runs = [];
     for (let i = 0; i < config.repeat; i += 1) {
         if (config.verbose && config.repeat > 1) {

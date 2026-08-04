@@ -42,6 +42,7 @@ function buildCases(store) {
     const TOP_UP = 99;
     const cases = [
         {
+            kind: "pipeline",
             name: "single",
             description: "Single item, stock at one location -> one shipment there",
             skuQuantities: { [sku(0)]: 1 },
@@ -52,6 +53,7 @@ function buildCases(store) {
             cleanupSkus: [],
         },
         {
+            kind: "pipeline",
             name: "multi",
             description: "3x same SKU -> one shipment, three ITEM# rows (Shopify merges duplicate line items; Dynamo does not)",
             skuQuantities: { [sku(1)]: 3 },
@@ -62,6 +64,7 @@ function buildCases(store) {
             cleanupSkus: [],
         },
         {
+            kind: "pipeline",
             name: "unique",
             description: "3 different SKUs all stocked at one location -> one combined shipment",
             skuQuantities: { [sku(2)]: 1, [sku(3)]: 1, [sku(4)]: 1 },
@@ -80,6 +83,7 @@ function buildCases(store) {
             cleanupSkus: [],
         },
         {
+            kind: "pipeline",
             name: "split",
             description: "Each SKU stocked at a different store only -> one shipment per store",
             skuQuantities: { [sku(5)]: 1, [sku(6)]: 1 },
@@ -96,6 +100,7 @@ function buildCases(store) {
             cleanupSkus: [],
         },
         {
+            kind: "pipeline",
             name: "undeliverable",
             description: "Zero stock everywhere -> UNDELIVERABLE, Shopify refund, rows removed from both AWS tables",
             skuQuantities: { [sku(7)]: 1 },
@@ -106,6 +111,7 @@ function buildCases(store) {
             cleanupSkus: [sku(7)],
         },
         {
+            kind: "pipeline",
             name: "partial_undeliverable",
             description: "One SKU stocked, one zero everywhere -> mixed: allocated shipment + refunded undeliverable",
             skuQuantities: { [sku(8)]: 1, [sku(9)]: 1 },
