@@ -8,15 +8,23 @@ TypeScript CLI + regression harness (`ts/`) for placing test orders on Universal
 ## ⚠ NEXT SESSION — CLOSE OUT TAA-22, THEN RE-PARALLELISE ACROSS STORES
 
 PS OAuth (step 1) and PS SKU wiring (step 2) are **done** — see "TAA-22" below.
-One item is still open before TAA-22 can close: **`--store PS --repeat 3` was
-killed mid-run** on a session where staging responded much slower than normal
-(projected ~29 min total vs US's ~4 min `--parallel --repeat 3` gate) — not
-diagnosed as a code defect (single-pass sequential and `--parallel` runs are
-both clean, byte-identical stable signatures), but not yet confirmed as a
-one-off either. Next session: re-run `--store PS --parallel --repeat 3` when
-staging is responding normally; if the slowdown recurs, escalate it as a real
-backend/staging finding (same category as the historical intermittent
-refund-automation miss elsewhere in this file).
+A fresh single-pass `--store PS --parallel --cases <6 baseline>` re-run
+(2026-08-04, see "TAA-22 Step 3" below) confirms the earlier ~29 min slowdown
+was a one-off — staging responded at normal speed this time (per-stage timings
+back in the historical range, e.g. `allocation` 42-47s, `cleanup` 16-31s,
+nothing near a timeout) — but surfaced a new, separate isolated finding:
+`split` failed an inventory-decrement check (order #3297, SKU
+`33948010@ATP#99` never dropped 99→98 inside the poll window). Logged, not
+escalated to a ticket yet (same treatment as the historical refund-automation
+gap). One item is still open
+before TAA-22 can close: **`--store PS --repeat 3` was killed mid-run** on an
+earlier session where staging responded much slower than normal (projected
+~29 min total vs US's ~4 min `--parallel --repeat 3` gate) — not diagnosed as
+a code defect, but not yet re-run at `--repeat 3` since. Next session: re-run
+`--store PS --parallel --repeat 3`; if the `split`/inventory-decrement miss
+or the slowdown recurs, escalate as a real backend/staging finding (same
+category as the historical intermittent refund-automation miss elsewhere in
+this file).
 
 Once that's clean, the broader goal: a single "full basic regression run"
 executes **each case exactly once, in parallel, across US + PS + NS as
@@ -223,6 +231,35 @@ makes `--parallel` safe on PS too.
   normal speed, and if the slowdown recurs, escalate it the same way the
   refund-automation gap was — a real backend/staging finding, not a harness
   problem, but not yet confirmed to be a one-off.
+- **Follow-up single-pass re-run (2026-08-04, later session) — confirms the
+  slowdown above was a one-off, surfaces a new isolated finding.**
+  `--store PS --parallel --cases single,multi,unique,split,undeliverable,partial_undeliverable`
+  (6 baseline cases, no NS): staging responded at normal speed throughout —
+  every stage's timing sat in the historical range (e.g. `allocation` 16.6-46.8s,
+  `cleanup` 16.2-31.4s, `refund` 8.4-14.0s), nothing close to a poll-window
+  timeout, unlike the killed run above. Result: **5/6 pass** — `single` #3296,
+  `multi` #3295, `unique` #3294, `undeliverable` #3298, `partial_undeliverable`
+  #3299 all clean. **`split` (#3297) failed:** `inventory` stage timed out —
+  SKU `33948010@ATP#99` expected to decrement 99→98 after allocation, never
+  did within the poll window. Every stage through `no_refund` passed for this
+  case; only the final inventory-decrement read-back never landed. Report
+  `regression_PS_20260804T072758Z.md`. **Treated as an isolated finding, not
+  escalated to a ticket** (same category/threshold as the historical
+  `partial_undeliverable` refund-automation gap elsewhere in this file) —
+  `split` passed cleanly, byte-identical, in both the sequential and
+  `--parallel` full-set runs earlier the same day (reports above), so this
+  reads as a one-off staging-side miss rather than a `--parallel`/SKU-pool
+  regression. Re-run `split` again (or watch for a recurrence) before treating
+  it as a real backend gap worth escalating.
+- **Gotcha hit while re-running the above:** this session's shell had the
+  old, retired `PS_ACCESS_TOKEN` already exported (from before TAA-22) but was
+  missing the new `PS_CLIENT_ID`/`PS_CLIENT_SECRET` — the harness fails at
+  runtime with `Missing PS_CLIENT_ID/PS_CLIENT_SECRET environment variables`
+  rather than anything referencing the stale token, which isn't an obvious
+  trail back to "you're still set up the old way." Anyone whose shell profile
+  predates TAA-22 will hit this the first time they run against PS — add the
+  two new vars (see "Stack & environment" below) alongside/instead of the old
+  `PS_ACCESS_TOKEN`.
 
 **Docs updated:** `qa-order-cli-tool-documentation.md`'s env var table,
 `README.md`'s prereqs line — both now say `PS_CLIENT_ID`/`PS_CLIENT_SECRET`
