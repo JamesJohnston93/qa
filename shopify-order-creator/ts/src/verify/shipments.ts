@@ -1,4 +1,4 @@
-/** Allocation-state checks against staging-shipments ITEM# rows. Ports regression/verify/shipments.py. */
+/** Allocation-state checks against staging-shipments ITEM# rows. */
 
 import { REMOVED, type AllocationSummary, type ShipmentItem } from "../readers/dynamoReader";
 import { VerificationError } from "./index";

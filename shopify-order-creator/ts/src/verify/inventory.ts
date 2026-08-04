@@ -1,4 +1,4 @@
-/** Inventory decrement checks against staging-inventory-v2. Ports regression/verify/inventory.py. */
+/** Inventory decrement checks against staging-inventory-v2. */
 
 import { AGGREGATE_LOCATIONS } from "../config";
 import { VerificationError } from "./index";

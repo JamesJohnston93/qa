@@ -1,6 +1,5 @@
 /**
- * Case execution: seed -> order -> poll each pipeline stage -> assert. Ports
- * regression/runner.py.
+ * Case execution: seed -> order -> poll each pipeline stage -> assert.
  *
  * Every stage records its elapsed time (feeds PollWindows tuning); every
  * assertion failure carries expected-vs-actual from the systems involved.

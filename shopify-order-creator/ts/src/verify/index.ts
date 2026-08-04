@@ -1,7 +1,7 @@
 /**
  * Assertion helpers. Every failure throws VerificationError carrying
  * expected vs actual from each system — reports include enough evidence to
- * raise a defect without re-running. Ports regression/verify/__init__.py.
+ * raise a defect without re-running.
  */
 
 export interface VerificationErrorShape {

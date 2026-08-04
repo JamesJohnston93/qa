@@ -23,7 +23,7 @@ import { generateAndAttachReceipt } from "./flows/receipts";
 export type SeedMode = "standard" | "split" | "zero" | "none";
 const SEED_MODES: SeedMode[] = ["standard", "split", "zero", "none"];
 
-// Ports aws_inventory.py's AWS_CONFIG defaults for the "standard" seed mode.
+// Thresholds for the "standard" seed mode: top up to 99 units if below 10.
 const MIN_QUANTITY_THRESHOLD = 10;
 const TOP_UP_QUANTITY = 99;
 
@@ -219,7 +219,7 @@ async function seedInventory(dynamo: DynamoClient, skus: string[], mode: SeedMod
     }
     return;
   }
-  // standard: ports aws_inventory.ensure_stock — top up only if below threshold, else leave alone.
+  // standard: top up only if below threshold, else leave stock alone (no destructive zero).
   for (const sku of skus) {
     const locations = await dynamo.getAllLocationsForSku(sku);
     const current = locations.find((location) => location.store === WEB_DC)?.quantity ?? null;

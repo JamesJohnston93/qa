@@ -1,17 +1,16 @@
 /**
  * NewStore order injection — Ship From Store (SFS) and Over the Counter (OTC)
- * — via POST /v0/d/fulfill_order. Ports newstore_orders.py's payload builders
- * faithfully (TAA-17 step 2), with one deliberate departure: external IDs are
- * collision-free (timestamp + random suffix), not the file-based
- * order_counter.json. That counter has a confirmed staging bug — reusing a
- * stale/reset counter value makes NewStore silently return an existing,
- * unrelated order instead of creating a new one or erroring (see CLAUDE.md,
- * 2026-07-22) — so it is not ported at all.
+ * — via POST /v0/d/fulfill_order.
  *
- * Strict by design, matching the rest of the TS harness: a SKU with no
- * Shopify price is a hard failure, never the Python original's $1.00
- * fallback (CLAUDE.md gotcha #2). No module-global brand/store toggle either
- * — store is an explicit parameter on every call.
+ * External IDs are collision-free (timestamp + random suffix), not a
+ * sequential counter: a file-based counter scheme was tried and dropped
+ * after a confirmed staging bug — reusing a stale/reset counter value makes
+ * NewStore silently return an existing, unrelated order instead of creating
+ * a new one or erroring (see CLAUDE.md, 2026-07-22).
+ *
+ * Strict by design: a SKU with no Shopify price is a hard failure, never a
+ * synthetic fallback price. No module-global brand/store toggle either —
+ * store is an explicit parameter on every call.
  */
 
 import { randomUUID } from "node:crypto";
@@ -46,8 +45,7 @@ interface NsCustomer {
 }
 
 // ---------------------------------------------------------------------------
-// Brand / store config — ports newstore_orders.py's SHOP_IDS/STORE_IDS/
-// FULFILLMENT_NODE_IDS, but as plain per-store maps instead of a BRAND global.
+// Brand / store config, as plain per-store maps rather than a mutable global.
 // ---------------------------------------------------------------------------
 
 const SHOP_IDS: Record<Store, string> = { US: "us-store", PS: "ps-store" };
@@ -94,8 +92,8 @@ const NS_CUSTOMER_ADDRESS: NsAddress = {
 
 // Store addresses used as shipping_address on OTC orders — NewStore records
 // the store as the "shipment" destination for in-store handover (confirmed
-// against a real order.opened webhook payload). Placeholder addresses per
-// the Python original; update if address accuracy matters for a test.
+// against a real order.opened webhook payload). Placeholder addresses —
+// update if address accuracy matters for a test.
 const NS_STORE_ADDRESSES: Record<Store, NsAddress> = {
   US: {
     firstName: "BRANCH_407",
@@ -214,10 +212,9 @@ function buildCashPayment(totalAmount: number, timestamp: string): Record<string
 }
 
 /**
- * Fetches real Shopify prices for the given SKUs (ports
- * newstore_orders._lookup_prices, minus its $1.00 fallback — this harness is
- * strict: an unpriceable SKU fails the whole injection rather than silently
- * skewing the order total).
+ * Fetches real Shopify prices for the given SKUs. Strict: an unpriceable SKU
+ * fails the whole injection rather than silently skewing the order total
+ * with a synthetic fallback price.
  */
 export async function lookupPrices(
   shopify: ShopifyClient,

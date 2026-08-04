@@ -1,4 +1,4 @@
-/** Shopify order <-> staging-orders-v2 alignment checks. Ports regression/verify/orders.py. */
+/** Shopify order <-> staging-orders-v2 alignment checks. */
 
 import { skuQuantities, type ShopifyOrderSnapshot } from "../readers/shopifyReader";
 import { VerificationError } from "./index";

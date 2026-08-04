@@ -1,4 +1,4 @@
-/** Undeliverable -> Shopify refund checks. Ports regression/verify/refunds.py. */
+/** Undeliverable -> Shopify refund checks. */
 
 import type { ShopifyOrderSnapshot } from "../readers/shopifyReader";
 import { VerificationError } from "./index";

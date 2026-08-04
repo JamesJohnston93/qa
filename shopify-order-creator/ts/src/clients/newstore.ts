@@ -1,7 +1,5 @@
 /**
- * NewStore API client with OAuth2 client-credentials authentication. Ports
- * newstore_client.py's retrying HTTP client faithfully (per ts-rewrite-dev-doc.md:
- * "Cleanest Python module — port faithfully").
+ * NewStore API client with OAuth2 client-credentials authentication.
  *
  * Auth flow: POST to the Keycloak token endpoint with client_id/client_secret,
  * cache the token, refresh proactively ~30s before it expires so a slow
@@ -49,8 +47,8 @@ export class NewStoreClient {
 
   /**
    * Returns a valid access token, refreshing it proactively if it's missing
-   * or within 30s of expiry. Not retried on failure (matches newstore_client.py
-   * — only the request layer below retries; an auth failure should surface fast).
+   * or within 30s of expiry. Not retried on failure — only the request layer
+   * below retries; an auth failure should surface fast.
    */
   private async getToken(): Promise<string> {
     if (this.token && Date.now() < this.tokenExpiresAt - 30_000) {

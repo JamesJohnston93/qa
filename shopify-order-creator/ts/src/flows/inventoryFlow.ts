@@ -2,8 +2,7 @@ import type { DynamoClient } from "../clients/dynamo";
 
 /**
  * Deterministic inventory seeding for one case: zero every existing location
- * for each ordered SKU, then apply the case's explicit seed plan. Mirrors
- * regression/runner.py's stage 1 (seed_inventory / zero_everywhere) — never
+ * for each ordered SKU, then apply the case's explicit seed plan — never
  * rely on ambient staging stock.
  */
 export async function prepareInventoryForCase(

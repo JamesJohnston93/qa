@@ -1,6 +1,5 @@
 /**
- * Shopify order placement via the Admin GraphQL API. Ports the relevant
- * parts of orders_processor.py's draft-order lifecycle (create -> calculate
+ * Shopify order placement via the Admin GraphQL API (draft -> calculate
  * shipping -> complete) for Universal Store (US) / Perfect Stranger (PS)
  * staging.
  *
@@ -34,10 +33,8 @@ export interface ShopifyOrderResult {
 
 /**
  * Optional delivery override for createDraftOrder (TAA-15 ad-hoc order
- * command). Omitted entirely = today's behaviour, unchanged: first available
- * shipping rate. Ports orders_processor.py's PREFERRED_SHIPPING_RATE /
- * PREFERRED_PICKUP_LOCATION_ID, but as an explicit per-call param instead of
- * module-global state.
+ * command) — an explicit per-call param, not module-global state. Omitted
+ * entirely = unchanged default behaviour: first available shipping rate.
  */
 export type DeliverySelection = { type: "rate"; title: string } | { type: "pickup"; locationId: string };
 
@@ -118,9 +115,10 @@ export class ShopifyClient {
   /**
    * No customerId is passed: Shopify creates/attaches a customer from
    * `customerEmail` automatically on first use of that email (confirmed by
-   * JJ — this is intended, not a fallback). Every regression run reuses the
-   * same per-store QA-automation email (config.BASELINE_CUSTOMERS), so the
-   * customer is only actually created once, on the very first order.
+   * JJ — this is intended, not a fallback). The regression suite and the
+   * ad-hoc `order` command both default to the same per-store QA-automation
+   * email (config.BASELINE_CUSTOMERS), so that customer is only actually
+   * created once, on its very first order.
    */
   async createDraftOrder(
     customerEmail: string,
@@ -139,8 +137,7 @@ export class ShopifyClient {
     };
 
     if (delivery?.type === "pickup") {
-      // Local pickup: no shippingAddress/shippingLine, matches
-      // orders_processor.create_draft_order's PREFERRED_PICKUP_LOCATION_ID path.
+      // Local pickup: no shippingAddress/shippingLine needed.
       input.deliveryMethod = { methodType: "LOCAL", locationId: delivery.locationId };
     } else {
       const shippingRateHandle =
@@ -201,7 +198,7 @@ export class ShopifyClient {
     };
   }
 
-  /** Mirrors orders_processor.py's _calculate_shipping_rates: calculates real rates without saving anything. */
+  /** Calculates real shipping rates without saving anything (draftOrderCalculate is read-only). */
   private async fetchShippingRates(
     customerEmail: string,
     lineItems: ShopifyLineItemInput[],
@@ -234,7 +231,7 @@ export class ShopifyClient {
     return rates;
   }
 
-  /** Mirrors orders_processor.fetch_shipping_rates with no preferred rate set: first available. */
+  /** No delivery override: just the first available rate. */
   private async fetchShippingRateHandle(
     customerEmail: string,
     lineItems: ShopifyLineItemInput[],
@@ -245,7 +242,7 @@ export class ShopifyClient {
     return rates[0].handle;
   }
 
-  /** Mirrors orders_processor.fetch_shipping_rates's PREFERRED_SHIPPING_RATE path: exact title match, or throw with the available list. */
+  /** Exact title match against available rates, or throw listing what's actually available. */
   private async fetchNamedShippingRateHandle(
     customerEmail: string,
     lineItems: ShopifyLineItemInput[],
@@ -261,7 +258,7 @@ export class ShopifyClient {
     return match.handle;
   }
 
-  /** Ports orders_processor.get_pickup_locations / graphql_scripts.get_locations: fulfilment locations for click-and-collect. */
+  /** Fulfilment locations available for click-and-collect delivery. */
   async fetchPickupLocations(): Promise<Array<{ id: string; name: string }>> {
     const result = await this.execute<{ locations: { edges: Array<{ node: { id: string; name: string } }> } }>(
       LOCATIONS,
@@ -275,8 +272,7 @@ export class ShopifyClient {
   }
 
   /**
-   * Batch price lookup by variant GID (ports orders_processor.get_shopify_prices
-   * / graphql_scripts.get_variant_prices). Used by NewStore order injection so
+   * Batch price lookup by variant GID. Used by NewStore order injection so
    * an order's total matches the real Shopify RRP. Returns only GIDs Shopify
    * actually resolved — a null `nodes` entry with no accompanying error
    * (unknown/deleted variant) is silently omitted, not defaulted; callers

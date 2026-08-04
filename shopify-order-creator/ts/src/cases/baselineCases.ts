@@ -1,8 +1,8 @@
 /**
  * Baseline case set v1 — "these always need to work and behave exactly the
- * same way." Ports regression/cases.py. Declarative: each case states its
- * inputs (SKUs, seed plan) and its expected state in every system. The
- * runner turns these into orders and assertions.
+ * same way." Declarative: each case states its inputs (SKUs, seed plan) and
+ * its expected state in every system. The runner turns these into orders
+ * and assertions.
  *
  * SKU isolation (TAA-14 Phase B, 2026-07-31): US now has a 14-SKU pool
  * (variants.ts), and the 6 cases below use 10 fully disjoint pool slots
@@ -12,9 +12,9 @@
  * scheduler safe to run cases concurrently. PS is still on the old 4-SKU
  * pool (blocked on a token scope fix) and reuses indices as before.
  *
- * NewStore SFS/OTC cases (7-8 in the design) are not wired into the runner:
- * order injection exists, but the NewStore read-back endpoint needs
- * confirming first. Tracked in TAA-3.
+ * NewStore SFS/OTC cases (7-8 in the design) live separately in
+ * cases/newstoreCases.ts — they don't share this file's Shopify/Dynamo
+ * pipeline shape at all (see that file's own doc comment).
  */
 
 import { WEB_DC, STORE_99, type Store } from "../config";
@@ -40,7 +40,7 @@ function storeNumber(location: string): string {
   return parts[1];
 }
 
-/** Builds the case set for the given store from its real variant pool (mirrors cases.build_cases). */
+/** Builds the case set for the given store from its real variant pool. */
 export function buildCases(store: Store): Record<string, CaseDefinition> {
   const pool = skuPoolFor(store);
   if (pool.length < 4) {
