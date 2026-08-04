@@ -60,6 +60,39 @@ Per JJ, consolidated onto `main` before branching `taa-15-cli-port`:
 `main` is now current with both feature sets; `taa-15-cli-port` branches from
 here.
 
+### TAA-15 step 1 + step 2 sign-off (2026-08-04)
+
+**Step 1 (build) — done.** New `order` subcommand (`ts/src/cli-order.ts`,
+`node dist/index.js order ...`) is the minimal TS replacement for `main.py`'s
+daily-use path: place one ad-hoc Shopify order (`--store`, `--items
+SKUxQTY,...`, `--seed standard|split|zero|none` porting `aws_inventory.py`'s
+`ensure_stock`/`split_stock`/zero-everywhere semantics, `--delivery
+rate:<title>|pickup:<name>` porting `orders_processor.py`'s delivery-method
+selection, `--email` override) or one ad-hoc NewStore SFS/OTC order (`--ns
+sfs|otc --items ...` via the existing `flows/newstoreOrders.ts`, receipt
+auto-generated and attached via `flows/receipts.ts`, non-fatal by design,
+`--save-receipt` to also save the PDF locally). Reuses the harness clients
+as-is — no logic re-port — with two thin additive extensions needed to make
+`--delivery` meaningful: `ShopifyClient.createDraftOrder` takes an optional
+delivery override (named rate or resolved pickup location id) and gained
+`fetchPickupLocations()`; `newstoreOrders.ts`'s already-existing
+`lookupPrices`/`calculateTotal` are now exported for receipt-total
+calculation. Prints identifiers immediately, before the best-effort receipt
+step. 32 new offline tests (arg parsing, item composition incl.
+duplicate-SKU summing, NS quantity expansion) — `npm run build` + `npm test`
+green (150/150).
+
+**Step 2 (live confirm) — done, both PASS.** `node dist/index.js order
+--store US --items 32625134x1` → real Shopify order **#9860**
+(`gid://shopify/Order/7819764564241`), standard inventory seed ran, default
+delivery, identifiers printed immediately. `node dist/index.js order --ns
+sfs --items 33006246x1` → real NewStore SFS order, external id
+`QASFS_1785818538240_6e9e1ee470`, order UUID
+`703d37b8-91ef-509e-a3d6-ef40aaf47ad7`, receipt generated and order note
+posted with the PDF link. Both confirmed live by JJ directly in Shopify
+admin / NewStore Manager. This clears the gate for step 3 (retiring the
+Python) below.
+
 ### Definition of "rewrite complete"
 
 No `.py` files remain under `shopify-order-creator/` (or only an intentionally-kept archive), the TS harness covers Shopify + AWS + NewStore end to end, and NS cases 7–8 pass live. Only then does the "remove all Python" cleanup happen.
