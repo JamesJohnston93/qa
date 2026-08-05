@@ -1,8 +1,8 @@
 # TypeScript Rewrite — Dev Doc
 
-**Status:** PARITY SIGNED OFF (2026-07-22). 6/6 baseline cases implemented, live on staging, full 6-case × `--repeat 3` green on both US and PS, PollWindows tuned from real stage timings. Python `regression/` v0.1 is retired — TS (`ts/`) is now the live regression suite. NS cases 7-8 are the one deferred item, on hold pending JJ's review.
+**Status:** REWRITE COMPLETE (2026-08-04) — zero Python remains. Regression baseline green on US + PS at `--repeat 3` (TAA-13); run-time optimised to ~4 min via parallel execution (TAA-14); NewStore injection, read-back, cases 7-8, and receipts all ported and live-confirmed on US (TAA-17); the interactive Python CLI replaced by the `order` subcommand (TAA-15). The sections below are the rewrite history — treat `CLAUDE.md` as authoritative for current status. TAA-22 (PS OAuth unblock) landed 2026-08-04: PS's static token stopped working (Shopify retired that auth model Jan 1 2026), replaced with a client-credentials OAuth provider, PS SKU pool grown to 14 and made fully disjoint like US, full 8-case set live-confirmed PASS both sequential (4:13) and `--parallel` (1:35, byte-identical signature) — see CLAUDE.md for the one open item (`--repeat 3` not yet clean, see below). Remaining follow-ups: fulfilment + rejection cases (TAA-21).
 **Owner:** JJ
-**Relates to:** TAA-13 (this work), TAA-3 (regression baseline), Scope of Work phase 1
+**Relates to:** TAA-13/14/15/17 (the rewrite), Scope of Work phase 1
 
 ## Current state (Jul 17, post-live-runs — through commit d7869a7)
 

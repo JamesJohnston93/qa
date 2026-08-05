@@ -4,13 +4,13 @@
  * its expected state in every system. The runner turns these into orders
  * and assertions.
  *
- * SKU isolation (TAA-14 Phase B, 2026-07-31): US now has a 14-SKU pool
+ * SKU isolation (TAA-14 Phase B, 2026-07-31; PS caught up to the same pool
+ * size in TAA-22, 2026-08-04): both US and PS now have 14-SKU pools
  * (variants.ts), and the 6 cases below use 10 fully disjoint pool slots
  * (single=0, multi=1, unique=2-4, split=5-6, undeliverable=7,
  * partial_undeliverable=8-9, slots 10-13 unused headroom) — no two cases
  * touch the same SKU, which is what makes the TAA-14 Phase B `--parallel`
- * scheduler safe to run cases concurrently. PS is still on the old 4-SKU
- * pool (blocked on a token scope fix) and reuses indices as before.
+ * scheduler safe to run cases concurrently on either store.
  *
  * NewStore SFS/OTC cases (7-8 in the design) live separately in
  * cases/newstoreCases.ts — they don't share this file's Shopify/Dynamo

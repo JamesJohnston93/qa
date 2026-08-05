@@ -6,23 +6,22 @@
  * Phase B's staging SKU pool.
  *
  * Standalone dev script — not part of the harness build (tsconfig only
- * includes src/**\/*.ts). Requires US_ACCESS_TOKEN/PS_ACCESS_TOKEN in the
- * environment, same as the harness itself. Read-only (GraphQL query only,
- * no mutations) — safe to re-run any time the SKU list changes.
+ * includes src/**\/*.ts) — but reuses the compiled `ShopifyClient` (TAA-22)
+ * rather than its own raw-fetch/token logic, so it gets US's static token
+ * and PS's OAuth client-credentials grant for free and stays in sync with
+ * the harness's auth (throttle retry included). Requires
+ * US_ACCESS_TOKEN/(PS_CLIENT_ID+PS_CLIENT_SECRET) in the environment, same
+ * as the harness itself. Read-only (GraphQL query only, no mutations) —
+ * safe to re-run any time the SKU list changes.
  *
  * Usage: node fetch-sku-gids.js <US|PS>
  */
 
 const fs = require("fs");
 const path = require("path");
-
-const STORE_CONFIG = {
-  US: { domain: "universal-store-staging.myshopify.com", tokenEnv: "US_ACCESS_TOKEN" },
-  PS: { domain: "perfect-stranger-staging.myshopify.com", tokenEnv: "PS_ACCESS_TOKEN" },
-};
+const { ShopifyClient } = require("../dist/clients/shopify.js");
 
 const BATCH_SIZE = 50;
-const API_VERSION = "2025-10";
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -36,10 +35,10 @@ function chunk(items, size) {
   return out;
 }
 
-async function queryBatch(domain, token, skus) {
+async function queryBatch(client, skus) {
   const searchQuery = skus.map((sku) => `sku:${sku}`).join(" OR ");
-  const body = JSON.stringify({
-    query: `
+  const result = await client.execute(
+    `
       query variantsBySku($searchQuery: String!) {
         productVariants(first: ${BATCH_SIZE}, query: $searchQuery) {
           edges {
@@ -54,48 +53,26 @@ async function queryBatch(domain, token, skus) {
         }
       }
     `,
-    variables: { searchQuery },
-  });
+    { searchQuery },
+  );
 
-  for (let attempt = 1; attempt <= 3; attempt += 1) {
-    const response = await fetch(`https://${domain}/admin/api/${API_VERSION}/graphql.json`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Shopify-Access-Token": token },
-      body,
-    });
-    if (response.status === 429) {
-      const retryAfter = Number(response.headers.get("Retry-After") ?? "2");
-      await sleep(retryAfter * 1000);
-      continue;
-    }
-    if (!response.ok) {
-      throw new Error(`Shopify request failed: ${response.status} ${response.statusText}`);
-    }
-    const json = await response.json();
-    if (json.errors) {
-      throw new Error(`Shopify GraphQL errors: ${JSON.stringify(json.errors)}`);
-    }
-    // Defensive: only keep nodes whose sku was actually in this batch —
-    // Shopify's search query can match more loosely than an exact sku:
-    // lookup implies, and silently trusting every returned node risks
-    // mislabelling an unrelated variant as one of ours.
-    return json.data.productVariants.edges.map((edge) => edge.node).filter((node) => skus.includes(node.sku));
+  if (result.errors) {
+    throw new Error(`Shopify GraphQL errors: ${JSON.stringify(result.errors)}`);
   }
-  throw new Error("Shopify request failed after 3 retries (rate limited)");
+  // Defensive: only keep nodes whose sku was actually in this batch —
+  // Shopify's search query can match more loosely than an exact sku:
+  // lookup implies, and silently trusting every returned node risks
+  // mislabelling an unrelated variant as one of ours.
+  return result.data.productVariants.edges.map((edge) => edge.node).filter((node) => skus.includes(node.sku));
 }
 
 async function main() {
   const store = process.argv[2];
-  if (!STORE_CONFIG[store]) {
+  if (store !== "US" && store !== "PS") {
     console.error("Usage: node fetch-sku-gids.js <US|PS>");
     process.exit(1);
   }
-  const { domain, tokenEnv } = STORE_CONFIG[store];
-  const token = process.env[tokenEnv];
-  if (!token) {
-    console.error(`Missing ${tokenEnv} environment variable`);
-    process.exit(1);
-  }
+  const client = new ShopifyClient(store);
 
   const skuListsDir = path.join(__dirname, "..", "..", "sku-lists");
   const listPath = path.join(skuListsDir, `${store.toLowerCase()}-skus.txt`);
@@ -116,7 +93,7 @@ async function main() {
   const found = new Map(); // sku -> variant node
   const batches = chunk(skus, BATCH_SIZE);
   for (const [index, batch] of batches.entries()) {
-    const nodes = await queryBatch(domain, token, batch);
+    const nodes = await queryBatch(client, batch);
     for (const node of nodes) {
       found.set(node.sku, node);
     }
