@@ -60,7 +60,7 @@ function defaultConfig() {
         verbose: true,
         help: false,
         listCases: false,
-        parallel: false,
+        parallel: true, // see RegressionConfig.parallel — default flipped 2026-08-06 (TAA-14)
         parallelConcurrency: 4, // keep in sync with scheduler.ts's DEFAULT_PARALLEL_CONCURRENCY (not imported here to avoid a config<->scheduler<->baselineCases import cycle)
         awsRegion: process.env.AWS_REGION ?? "ap-southeast-2",
         awsProfile: process.env.AWS_PROFILE ?? "staging",

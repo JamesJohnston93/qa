@@ -2,7 +2,7 @@
   "name": "qa-order-tool-ts",
   "version": "0.1.0",
   "private": true,
-  "description": "TypeScript parity scaffold for the QA regression harness",
+  "description": "QA order tool + regression harness for Universal Store / Perfect Stranger staging (Shopify, AWS DynamoDB, NewStore)",
   "main": "dist/index.js",
   "bin": {
     "qa-order-tool-ts": "dist/index.js"
