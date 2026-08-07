@@ -33,6 +33,71 @@ concurrently). Then TAA-21 (rejection + fulfilment).
 
 Everything below this block is historical rewrite context, not the live task list.
 
+**Housekeeping, as at 2026-08-06:** work is on branch `taa-22-ps` (`efac50c`),
+**not yet merged to `main`**. `taa-14-speedup`, `taa-15-cli-port` and
+`taa-17-newstore` are all merged into `main` and are prunable leftovers. A
+reviewer will check branch state first, so land or prune these before sharing.
+
+**Report retention (JJ, 2026-08-06):** run reports are disposable — the verdict
+matters at the time of the run, and anything worth keeping gets written up here
+or on the ticket. `report.ts` now prunes `ts/reports/` back to the **10 most
+recent runs** after every run (`REPORT_RETENTION`, `pruneReports()`; pure
+`reportsToPrune()` is offline-tested). It only ever touches files matching
+`regression_<STORE>_<stamp>.{md,json}`, so the old `regression-report.md`
+dry-run sample and anything hand-saved there survive. Best-effort: a report it
+can't delete warns and is skipped, never failing an otherwise-passing run.
+
+**Doc accuracy pass (2026-08-06):** README, the four docs in this folder, the
+six Confluence pages under "QA Automation Tool", and the TAA tickets were
+reconciled against the real repo state ahead of a senior-dev review. Two
+long-standing doc defects fixed in code at the same time: `cli.ts`'s
+`printHelp()` was omitting `unique` and `partial_undeliverable` from its case
+list (a reviewer running `--help` would have seen 6 of 8 cases), and
+`staging-sku-setup.md` step 5 said `--list` instead of `--list-cases`.
+## Decisions JJ made 2026-08-06 (all applied)
+
+- **`--parallel` is now the default; `--sequential` is the opt-out.** TAA-14's
+  2026-08-04 decision, finally implemented. `defaultConfig()` sets
+  `parallel: true`; `cli.ts` gained `--sequential`; `--parallel` still accepted
+  so existing scripts/docs keep working; later flag wins if both are passed.
+  Rationale is on `RegressionConfig.parallel` — both stores have 14-SKU pools
+  with fully disjoint per-case assignment, so the wave scheduler has nothing to
+  race on, and parallel runs are byte-identical to sequential on both stores.
+  Sequential is now the *debugging* mode: readable one-case-at-a-time logs, or
+  ruling out concurrency when triaging. New `tests/cli.test.js` pins the
+  contract; suite green at **169/169**.
+  **Not yet done:** no live staging run since the flip. A bare
+  `node dist/index.js` now runs parallel where it used to run sequentially —
+  expected and proven equivalent, but re-confirm live on the next run.
+- **Scope-of-Work workstream 2 (allocation reflection, Shopify ↔ DynamoDB)
+  folded into TAA-21.** Nothing was built for it (no fulfilment-order querying,
+  no store→Shopify-location mapping in `ts/src/`, confirmed by grep) and it
+  verifies the same surface as workstream 3's fulfilment verification, needing
+  the same two missing pieces — separate tickets would mean building both twice.
+- **TAA-3 closed.** The design deliverable is done and published; implementation
+  lives on TAA-13/14/15/17 and the remaining phases on TAA-21/22, so holding it
+  open added nothing.
+- **TAA-15 closed: the operator surface is a CLI, not a GUI.** The remaining
+  order-builder scope (settings menu, presets/random orders, stress test,
+  associate switching for OTC, fire-and-verify) split out to **TAA-29** so
+  closing the parent didn't lose it. These extend the `order` subcommand — the
+  CLI-vs-GUI question is settled, don't reopen it.
+- **TAA-30 raised for the QA customer pool.** Removes the last Jared Davis
+  reference (the NewStore `ns_id` still points at his real profile — a live-use
+  blocker, left behind because it needs a real NewStore profile created rather
+  than just a string change), adds a usable way to create fake customers on both
+  Shopify and NewStore, and builds a pool of 10 selected at random per run. The
+  driver: `--parallel` is now the default and every concurrent case still shares
+  one QA customer per store. No interference was seen across the ~30 orders in
+  TAA-14's proving, but that's absence of evidence, not proof — and a customer
+  pool is the prerequisite for address-change propagation cases.
+  `NS_ASSOCIATES`/`ACTIVE_ASSOCIATE_ID` stay out of scope: real staff accounts,
+  and OTC orders need a real associate.
+
+Still open for JJ: **TAA-7** — is it build work (wire Kian's fulfilment call
+into the harness) or subsumed by TAA-21's verification-only scope? Its
+description states the ambiguity rather than guessing.
+
 ## ✅ TS REWRITE COMPLETE (2026-08-04) — zero Python remains
 
 The tool started as an interactive Python CLI (`main.py` + 6 supporting modules) and has been fully ported to TypeScript in three overlapping efforts: the automated regression baseline (TAA-13), NewStore SFS/OTC support + receipts (TAA-17), and the ad-hoc order-placement command that replaced the Python CLI's daily-use path (TAA-15). `find shopify-order-creator -name '*.py'` returns nothing. See "TAA-15 step 3 sign-off" below for the retirement details, and "Definition of rewrite complete" for what was required to get here. The sections immediately below are kept as the historical record of that port — genuinely useful context (what broke, what was decided and why) for anyone extending the TS harness, not a live task list.
@@ -417,9 +482,14 @@ Current (TS, `ts/src/`) — see `qa-order-cli-tool-documentation.md`'s own file-
 - `--repeat N` (regression suite only) diffs JSON results between identical runs — variance is a flagged inconsistency (race-condition signal); don't break this contract when touching `runner.ts`/`report.ts`.
 - Prefer reuse over re-porting: the `order` command's build (TAA-15) added new capability to existing clients (e.g. `ShopifyClient.fetchPickupLocations`) rather than duplicating logic — follow that pattern for future ad-hoc-command capability.
 - `npm run build` (tsc) + `npm test` (`node --test tests/*.test.js`) must stay green — offline tests cover pure logic (arg parsing, payload shape, assertions); live staging runs are the separate, explicit confirm step for anything network-facing.
-- Update `qa-order-cli-tool-documentation.md`'s changelog when `order`-command-facing behaviour changes; update this file (`CLAUDE.md`) when harness-internal behaviour, decisions, or live-run findings change. Track build progress on the relevant TAA ticket (currently TAA-15's remaining scope).
+- Update `qa-order-cli-tool-documentation.md`'s changelog when `order`-command-facing behaviour changes; update this file (`CLAUDE.md`) when harness-internal behaviour, decisions, or live-run findings change. Track build progress on the relevant TAA ticket (currently TAA-22's last item, then TAA-15's remaining scope).
+- Run reports are disposable and auto-pruned to the 10 most recent (see "Report retention" at the top). Never cite a report filename as durable evidence without also recording the substance — the numbers, order ids and verdict — here or on the ticket.
+- `cli.ts`'s `--help` and `--list-cases` are user-facing documentation. When cases or flags change, update them in the same commit — `printHelp()` silently drifted two cases out of date once already.
 
 ## TypeScript rewrite handoff (Jul 17, 2026) — HISTORICAL, superseded by "TS state" above
+
+<details>
+<summary>The original scaffold-era handoff note, kept for archaeology. Every "next" in it has shipped, and several filenames it lists no longer exist — <code>src/verification/verification.ts</code> and <code>src/verification/assertions.ts</code> became <code>src/verify/{orders,refunds,shipments,inventory,newstore}.ts</code>, and the scaffold runner was replaced wholesale. Do not read this as current state.</summary>
 
 A TypeScript rewrite scaffold for the QA regression harness is now present under `ts/` and is aligned to the Python baseline in `regression-package-design.md` and `scope-of-work-reworked.md`.
 
@@ -459,3 +529,7 @@ The next implementation slice should continue porting the real regression baseli
 4. Repeat-run variance reporting and CLI flags matching the Python parity contract should be iterated after schema confirmation.
 
 This scaffold is a runnable starting point for the TAA rewrite work and should be treated as the initial handoff artifact for follow-on co-working/admin work.
+
+</details>
+
+*(The repo-root `ts-rewrite-handoff.txt` was a standalone copy of this same note. It's been reduced to a pointer at this file and is safe to delete.)*
