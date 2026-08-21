@@ -3,40 +3,157 @@
 TypeScript CLI + regression harness (`ts/`) for placing test orders on Universal Store / Perfect Stranger **staging** and verifying omni-channel alignment across Shopify, AWS (DynamoDB), and NewStore. Two entry points from the same build: `node dist/index.js order ...` places one ad-hoc test order on demand (TAA-15); `node dist/index.js` with no subcommand runs the automated regression suite (TAA-13/14/17).
 
 **Owner:** JJ (james.johnston@universalstore.com.au). Tool originally by Jared Davis (as a Python CLI — see "TS rewrite complete" below).
-**Tracking:** Jira project TAA (current: TAA-22, in progress — see "TAA-22" below). Docs: Confluence QD space → "QA Automation Tool" page tree — see `regression-package-design.md` and `scope-of-work-reworked.md` in this folder, and `qa-order-cli-tool-documentation.md` for the `order` command's user-facing docs.
+**Tracking:** Jira project TAA (current: TAA-21, fulfilment — see "NEXT SESSION" below; TAA-31/32/33 queued behind it). Docs: Confluence QD space → "QA Automation Tool" page tree — see `regression-package-design.md` and `scope-of-work-reworked.md` in this folder, and `qa-order-cli-tool-documentation.md` for the `order` command's user-facing docs.
 
-## ⚠ NEXT SESSION — CLOSE OUT TAA-22, THEN RE-PARALLELISE ACROSS STORES
+## ⚠ NEXT SESSION — ONE LIVE RUN TO CLEAR, THEN TAA-21 FULFILMENT
 
-PS OAuth (step 1) and PS SKU wiring (step 2) are **done** — see "TAA-22" below.
-A fresh single-pass `--store PS --parallel --cases <6 baseline>` re-run
-(2026-08-04, see "TAA-22 Step 3" below) confirms the earlier ~29 min slowdown
-was a one-off — staging responded at normal speed this time (per-stage timings
-back in the historical range, e.g. `allocation` 42-47s, `cleanup` 16-31s,
-nothing near a timeout) — but surfaced a new, separate isolated finding:
-`split` failed an inventory-decrement check (order #3297, SKU
-`33948010@ATP#99` never dropped 99→98 inside the poll window). Logged, not
-escalated to a ticket yet (same treatment as the historical refund-automation
-gap). One item is still open
-before TAA-22 can close: **`--store PS --repeat 3` was killed mid-run** on an
-earlier session where staging responded much slower than normal (projected
-~29 min total vs US's ~4 min `--parallel --repeat 3` gate) — not diagnosed as
-a code defect, but not yet re-run at `--repeat 3` since. Next session: re-run
-`--store PS --parallel --repeat 3`; if the `split`/inventory-decrement miss
-or the slowdown recurs, escalate as a real backend/staging finding (same
-category as the historical intermittent refund-automation miss elsewhere in
-this file).
+**Step 1 — clear the outstanding live run (~4 min).** From `ts/`, after
+`aws sso login --profile staging`:
 
-Once that's clean, the broader goal: a single "full basic regression run"
-executes **each case exactly once, in parallel, across US + PS + NS as
-needed, target <6 min** (US and PS are fully disjoint stores → can run
-concurrently). Then TAA-21 (rejection + fulfilment).
+```
+node dist/index.js --store PS --parallel --repeat 3
+```
+
+This single run does two jobs. It satisfies **TAA-22**'s last unticked item
+(the `--repeat 3` gate, killed mid-run on an earlier slow-staging day and
+never re-run), and it live-confirms the **parallel-by-default flip** —
+`defaultConfig()` set `parallel: true` on 2026-08-06 and no live run has
+happened since, so a bare invocation now runs parallel where it used to run
+sequentially. Proven equivalent offline (169/169), never confirmed on staging.
+
+TAA-22 is marked **Done** on the board while its acceptance item is still
+unticked; a reconciliation comment is on the ticket. Tick it and record the
+wall-clock when this passes. If it fails, reopen — two known risks are live:
+the ~29 min staging slowdown, and the isolated PS `split` inventory-decrement
+miss (order #3297, SKU `33948010@ATP#99` never dropped 99→98 in the window).
+A recurrence of either is a real backend finding, not a harness defect.
+
+**Gotcha:** a shell predating TAA-22 may still export the retired
+`PS_ACCESS_TOKEN` and lack `PS_CLIENT_ID`/`PS_CLIENT_SECRET`. The failure
+message doesn't point back at the stale token.
+
+**Step 2 — TAA-21 fulfilment, sliced into six chunks.** TAA-21 is now an
+umbrella **Workstream**; the work is six child tasks, each sized for one
+sitting. Do them in order — each builds on the last. Point a session at one
+ticket rather than at TAA-21, to keep context small.
+
+| Slice | Ticket | Done when |
+| --- | --- | --- |
+| A | **TAA-34** | Paste a shipment id + item ids by hand → 200 + tracking number |
+| B | **TAA-35** | Payload built from the shipment's real rows, any item count |
+| C | **TAA-36** | One command fulfils a whole order end to end |
+| D | **TAA-37** | Fulfilled state asserted in shipments + orders tables |
+| E | **TAA-38** | Shopify's fulfilment view checked against the allocation |
+| F | **TAA-39** | `fulfil_single` / `fulfil_split` green on both stores under `--repeat` |
+
+**Start with TAA-34.** It touches no DynamoDB and asserts nothing — it exists
+to prove the endpoint contract against real staging before three more slices
+get built on top of it. If the contract differs from what's documented, that's
+far cheaper to find in A than in D.
+
+A–C are the walking skeleton. D–E make it a test rather than a script. F folds
+it into the regression suite. C on its own gives an operator-facing "fulfil
+this order" command, useful even if the rest slips.
+
+Full contract and design detail: dev doc
+https://universalstore.atlassian.net/wiki/spaces/QD/pages/1866727460
+
+**This project is staging-only. Production endpoints, hosts and keys stay out
+of this repo and out of the docs entirely — by design, not by omission.**
+
+Endpoint: `POST /staging/fulfil` on
+`celmqip2md.execute-api.ap-southeast-2.amazonaws.com`, `X-API-KEY` auth.
+Base URL + key from env (`FULFIL_BASE_URL`, `FULFIL_API_KEY`), never
+committed. The client asserts its host is the staging host and throws
+otherwise.
+
+Payload facts worth not re-deriving:
+- `shipment_id` = the `SHIPMENT#<id>` sort key with the prefix **stripped**
+  (bare UUID).
+- `shipment_item_id` = the `ITEM#<uuid>` sort key with the prefix
+  **retained**, verbatim. The asymmetry is real, not a typo — pin it in a test.
+- One package per item; multi-item packages are legal but not exercised.
+- Weights (`weight` / `final_weight` / `packaging_weight`) are unvalidated
+  pass-through constants. Nothing asserts on them.
+- `fulfiller` = `"QA auto fulfilment"`.
+- `fulfilled_at` = `YYYY-MM-DD HH:MM:SS`, **Australia/Brisbane**, second
+  precision, no milliseconds. Format explicitly via `Intl.DateTimeFormat` with
+  `timeZone: "Australia/Brisbane"` — NOT host local time.
+- 200 = success; Auspost returns a tracking number the backend writes onto the
+  shipment row (assert it). 400 = failure with a message worth surfacing
+  ("can't fulfill shipment with status fulfilled", "shipment is on hold",
+  "contact dev support"). Carry the response body into the thrown error.
+- Any shipment that isn't already fulfilled is fulfillable.
+
+**Item settling — a case-design consideration, not a defect.** Allocation
+writes the `SHIPMENT#` row first, then updates `ITEM#` rows one at a time. The
+item count in the payload must equal the number of items carrying that
+`shipmentId`. Fulfilling on first sight of a shipment id would send a short
+payload — that's a flaw in how the case was built, not a finding. TAA-36 owns
+waiting for the counts to settle. Whether that's a formal poll stage or handled
+inline is worth deciding with real timings in front of you; split it out if it
+grows.
+
+**Wiring traps (mostly TAA-39's problem, but know them now):**
+`stageSequenceFor` (`progress.ts:11`) must gain any new stage name or run
+progress/ETA silently drift — it is NOT derived from the runner's actual
+`stageDone()` calls. `cli.ts:107` indexes `allCases[name]` unguarded, so a
+pipeline case outside `buildCases()`'s return throws there. `hasRefund` is
+computed in three places (`runner.ts:159`, `runner.ts:463`, `cli.ts:107`).
+`printHelp()`/`printCases()` hardcode "all 8".
+
+Poll windows proposed: `fulfilment` 150s (TAA-37). Deliberately not 300s —
+JJ's ">5 min = probable bug" threshold is a triage signal, not a wait-it-out
+budget. Tune from live data.
+
+**Fulfilment is irreversible on staging** (same class as `zeroEverywhere`) and
+a 200 produces a real Auspost staging shipment. Repeat runs need fresh orders —
+have a couple of spare allocated orders ready before starting TAA-34.
+
+## Board split made 2026-08-07 (JJ's calls)
+
+TAA-21 was rescoped, converted to an umbrella **Workstream** with six child
+slices (TAA-34..39, see Step 2 above), and three separate tickets split out of
+it. It previously read "verification only" on the assumption the fulfil call
+was already wired in — wrong: **nothing fulfilment-related exists in `ts/src`
+at all**, so it is build + verify, and that is why it needed slicing.
+
+- **TAA-21** — fulfilment: wire the call, verify fulfilled state, allocation
+  reflection. Next up.
+- **TAA-7 — CLOSED**, folded into TAA-21. The call is one HTTP POST built from
+  data the harness already reads; splitting it meant two tickets editing the
+  same modules. Correction for the record: the fulfil call **predates Kian** —
+  it's an existing US service sent via RapidAPI, not his work.
+- **TAA-31** — rejection & reallocation (was phase 4 of TAA-21). Blocked on JJ
+  supplying the reject call.
+- **TAA-32** — click & collect fulfilment. Pickup has no carrier and no
+  tracking number, so it needs its own definition of done.
+- **TAA-33** — order-finalised transaction. Fires when the last open item
+  closes, by fulfilment **or** by going undeliverable and being refunded — so
+  it spans TAA-21 and the existing refund cases. Owns building the
+  `TRANSACTION#` row reader (nothing reads transaction rows today). Note the
+  refund half is already driven every run by `undeliverable` /
+  `partial_undeliverable` and is entirely unasserted — could be verified early.
+
+Allocation reflection (Scope-of-Work workstream 2) stays on TAA-21.
+Futura / Delivery Note verification remains out of scope everywhere.
+
+## Housekeeping — do this before any review or handover (as at 2026-08-07)
+
+Branch state is the first thing a reviewer looks at, and right now it does not
+read well:
+
+- On `taa-22-ps` at `30f2367`, **3 commits ahead of `origin/taa-22-ps`** —
+  unpushed. `main` is itself 1 ahead of `origin/main`.
+- **`taa-22-ps` is not merged to `main`.** All the TAA-22 + TAA-14 parallel-by-
+  default + report-retention + doc-accuracy work lives only on that branch.
+- `taa-14-speedup`, `taa-15-cli-port` and `taa-17-newstore` are merged into
+  `main` and are prunable leftovers.
+- Untracked in the working tree: `.claude/` and `_to_delete/`.
+
+Push, land `taa-22-ps`, prune the three stale branches.
 
 Everything below this block is historical rewrite context, not the live task list.
-
-**Housekeeping, as at 2026-08-06:** work is on branch `taa-22-ps` (`efac50c`),
-**not yet merged to `main`**. `taa-14-speedup`, `taa-15-cli-port` and
-`taa-17-newstore` are all merged into `main` and are prunable leftovers. A
-reviewer will check branch state first, so land or prune these before sharing.
 
 **Report retention (JJ, 2026-08-06):** run reports are disposable — the verdict
 matters at the time of the run, and anything worth keeping gets written up here
