@@ -3,36 +3,51 @@
 TypeScript CLI + regression harness (`ts/`) for placing test orders on Universal Store / Perfect Stranger **staging** and verifying omni-channel alignment across Shopify, AWS (DynamoDB), and NewStore. Two entry points from the same build: `node dist/index.js order ...` places one ad-hoc test order on demand (TAA-15); `node dist/index.js` with no subcommand runs the automated regression suite (TAA-13/14/17).
 
 **Owner:** JJ (james.johnston@universalstore.com.au). Tool originally by Jared Davis (as a Python CLI — see "TS rewrite complete" below).
-**Tracking:** Jira project TAA (current: TAA-21, fulfilment — see "NEXT SESSION" below; TAA-31/32/33 queued behind it). Docs: Confluence QD space → "QA Automation Tool" page tree — see `regression-package-design.md` and `scope-of-work-reworked.md` in this folder, and `qa-order-cli-tool-documentation.md` for the `order` command's user-facing docs.
+**Tracking:** Jira project TAA (current: TAA-21 fulfilment — slice A **TAA-34** in flight, built but not live-confirmed; TAA-40 owns the outstanding PS live run; TAA-31/32/33 queued behind TAA-21). Docs: Confluence QD space → "QA Automation Tool" page tree — see `regression-package-design.md` and `scope-of-work-reworked.md` in this folder, and `qa-order-cli-tool-documentation.md` for the `order` command's user-facing docs.
 
-## ⚠ NEXT SESSION — ONE LIVE RUN TO CLEAR, THEN TAA-21 FULFILMENT
+## ⚠ NEXT SESSION — FINISH TAA-34 (fulfilment slice A) LIVE
 
-**Step 1 — clear the outstanding live run (~4 min).** From `ts/`, after
-`aws sso login --profile staging`:
+**Step 0 — push first; nothing below is real until this happens.** Four commits
+on `taa-22-ps` are local-only, including the parallel-by-default flip:
+`d595eba`, `0082604`, `30f2367`, `fdaa31b`. Push, merge to `main`, then rebase
+the `taa-34-fulfil-client` worktree onto it — that branch was cut from
+`origin/main` and does not carry the flip.
+
+**Step 1 — TAA-34 live confirm.** Slice A is **built and committed** already
+(`829db11`, worktree `../qa-taa-34`): `clients/fulfilment.ts`, `cli-fulfil.ts`,
+wired into `index.ts`, plus `tests/fulfilment.test.js` and
+`tests/cli-fulfil.test.js`. What it has never had is the one thing the ticket
+actually asks for — a real call against staging:
 
 ```
-node dist/index.js --store PS --parallel --repeat 3
+node dist/index.js fulfil --shipment <bare-uuid> --item ITEM#<uuid>
 ```
 
-This single run does two jobs. It satisfies **TAA-22**'s last unticked item
-(the `--repeat 3` gate, killed mid-run on an earlier slow-staging day and
-never re-run), and it live-confirms the **parallel-by-default flip** —
-`defaultConfig()` set `parallel: true` on 2026-08-06 and no live run has
-happened since, so a bare invocation now runs parallel where it used to run
-sequentially. Proven equivalent offline (169/169), never confirmed on staging.
+200 + a tracking number closes it. Needs `FULFIL_BASE_URL` / `FULFIL_API_KEY`
+in env and a freshly allocated order to fulfil. **Fulfilment is irreversible** —
+a fulfilled staging shipment stays fulfilled, so place two or three spare orders
+before starting. Re-firing the same shipment is the cheap negative test: the 400
+body (`"can't fulfill shipment with status fulfilled"`) must surface in the
+thrown error, not a bare status code.
 
-TAA-22 is marked **Done** on the board while its acceptance item is still
-unticked; a reconciliation comment is on the ticket. Tick it and record the
-wall-clock when this passes. If it fails, reopen — two known risks are live:
-the ~29 min staging slowdown, and the isolated PS `split` inventory-decrement
-miss (order #3297, SKU `33948010@ATP#99` never dropped 99→98 in the window).
-A recurrence of either is a real backend finding, not a harness defect.
+Then tick TAA-34, record the shipment id + tracking number here, and move to
+**TAA-35** (widen `ShipmentItem` with `shipmentItemId` / `shipmentId`).
+
+**Deferred, now owned by TAA-40:** `--store PS --parallel --repeat 3`. It is
+TAA-22's last unticked acceptance item *and* the only live confirmation of the
+parallel-by-default flip (`defaultConfig()` set `parallel: true` on 2026-08-06;
+no live run since, proven equivalent offline at 169/169 but never on staging).
+It sat in a comment on a closed ticket for two weeks — as of 2026-08-21 it has
+its own ticket. TAA-22 stays Done. If that run fails, the two live risks — the
+~29 min staging slowdown, and the isolated PS `split` inventory-decrement miss
+(order #3297, `33948010@ATP#99` never dropped 99→98 in the window) — are real
+backend findings, not harness defects.
 
 **Gotcha:** a shell predating TAA-22 may still export the retired
 `PS_ACCESS_TOKEN` and lack `PS_CLIENT_ID`/`PS_CLIENT_SECRET`. The failure
 message doesn't point back at the stale token.
 
-**Step 2 — TAA-21 fulfilment, sliced into six chunks.** TAA-21 is now an
+**The full slice plan.** TAA-21 is now an
 umbrella **Workstream**; the work is six child tasks, each sized for one
 sitting. Do them in order — each builds on the last. Point a session at one
 ticket rather than at TAA-21, to keep context small.
