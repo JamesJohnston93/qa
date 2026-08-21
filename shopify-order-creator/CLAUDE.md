@@ -62,17 +62,76 @@ shipment id as consumed after one successful call. Not investigated further
 whether a 400 ever appears later (e.g. post-manifest) — out of scope for this
 slice, and not worth burning more spare orders to chase.
 
+**⚠ Correction to Finding 2 (JJ, 2026-08-21, same day).** Finding 2 is
+**not proven — it is timing-suspect and should not be built on.** The
+DynamoDB shipment row can take **~30 seconds** to reflect a fulfilment. If
+the backend's "already fulfilled" guard reads that same row, then three fires
+inside ~90s were racing the write rather than demonstrating the absence of a
+guard — and the `pendingAction: MANIFEST` observation is consistent with a row
+that had not settled. The tracking numbers read between calls may likewise
+have been unsettled values, so "silently overwriting" is also unconfirmed.
+**TAA-41** owns the re-test: fulfil, poll the row until it is genuinely
+settled, *then* re-fire. Until that lands, treat "the backend does not guard
+against re-fulfilment" as an open question, not a finding.
+
+**⚠ Correction to Finding 1 (JJ, 2026-08-21).** The conclusion is right — the
+tracking number lives only on the shipment row — but the method used to
+establish it was a **single hand-read at an unrecorded moment**, and the same
+~30s lag applies. The row is not readable immediately after the 200. Anything
+automated must **poll**, not read once. See "How the harness must read
+fulfilment state" below.
+
 TAA-34 ticket updated with the same findings, checklist ticked, **status →
-Done**.
+Done**. Not reopened — the corrections above and TAA-41 carry the work.
 
-## ⚠ NEXT SESSION — TAA-35 (fulfilment slice B)
+## How the harness must read fulfilment state (JJ, 2026-08-21)
 
-Build the shipment payload from a shipment's real DynamoDB rows instead of
-hand-typed ids — "any item count" per the slice table below. Read TAA-35's own
-ticket for the contract; don't re-read TAA-36..39, each is its own session.
-Carry Finding 1 and Finding 2 above forward: don't have TAA-35/36 assume the
-fulfil response contains a tracking number, and don't assume double-fulfil is
-backend-guarded.
+The method used in TAA-34 — fire, then read once — will flake the moment it is
+automated. The rules from here:
+
+1. **A 200 means "accepted", not "fulfilled".** The `SHIPMENT#` row is the only
+   source of truth for the outcome. The response body carries `label_url` and
+   `label_dimensions` and nothing else useful.
+2. **Always poll, never read once.** `waitForShipmentFulfilled(orderPk,
+   shipmentId)` polls until `status === FULFILLED` **and** `trackingNumber` is
+   present. Window **90s** at a 2s interval — 3x the observed ~30s lag, and
+   inside TAA-37's proposed 150s `fulfilment` stage window.
+3. **`DynamoReader` currently discards almost everything on the `SHIPMENT#`
+   row** — it indexes those rows only to read `allocatedStore`
+   (`readers/dynamoReader.ts:177-178`). It needs `status`, `trackingNumber`,
+   `carrier` and `pendingAction` surfaced too. The row is already fetched on
+   every run, so this is a widening, not a new query.
+4. **Check shipment status before calling fulfil.** Whether or not the backend
+   guards against a re-fire (open, see TAA-41), the harness should not depend
+   on it: read the row, skip or fail if it is already `FULFILLED`.
+5. **Two different waits, don't conflate them.** *Item settling* happens before
+   fulfil — allocation writes the `SHIPMENT#` row first, then `ITEM#` rows one
+   at a time, so the payload's item count must settle first. *Fulfilment
+   settling* happens after. Separate windows, separate helpers.
+6. **Treat a shipment id as single-use.** Every live attempt burns a real
+   staging Auspost label whether or not it was needed.
+
+## ⚠ NEXT SESSION — TAA-41 RE-TEST FIRST, THEN TAA-35 (fulfilment slice B)
+
+**Job 1 — TAA-41, the double-fulfil re-test.** Settle the open question above
+before anything is built on top of it. Order **#9924** is already placed and
+allocated for exactly this. Fulfil it, poll the shipment row until
+`status === FULFILLED` and `trackingNumber` is present, record how long that
+actually took, then re-fire the same shipment. A 400 means Finding 2 was a
+race and three docs need correcting. A 200 means it is a real backend finding
+worth raising. Either way, record the measured settle time — the 90s poll
+window is derived from an estimate, and this is the chance to replace it with
+data.
+
+**Job 2 — TAA-35, slice B.** Build the shipment payload from a shipment's real
+DynamoDB rows instead of hand-typed ids — "any item count" per the slice table
+below. Read TAA-35's own ticket for the contract; don't re-read TAA-36..39,
+each is its own session. Widen the reader for the shipment-row fields listed
+in rule 3 above while you are in there — the row is already in hand.
+
+Carry the corrected findings forward: the fulfil response never contains a
+tracking number, the row lags ~30s behind the call, and whether double-fulfil
+is backend-guarded is **unknown** until TAA-41 answers it.
 
 **Deferred, still owned by TAA-40:** `--store PS --parallel --repeat 3`. It is
 TAA-22's last unticked acceptance item *and* the only live confirmation of the
@@ -141,12 +200,16 @@ Payload facts worth not re-deriving:
   400 = failure with a message worth surfacing ("can't fulfill shipment with
   status fulfilled", "shipment is on hold", "contact dev support"). Carry the
   response body into the thrown error.
-- **Not confirmed live:** whether an already-fulfilled shipment is ever
-  rejected. TAA-34 re-fired the same fulfilled shipment 3x within ~90s and
-  got 200 every time, each generating a new real Auspost label/tracking
-  number — see Finding 2 above. Don't assume the backend guards against
-  double-fulfil; if a slice needs that guarantee, check shipment status in
-  Dynamo before calling fulfil.
+- **The shipment row lags the call by ~30s** (JJ, confirmed from experience).
+  `trackingNumber` and the `FULFILLED` status are not readable immediately
+  after the 200 — poll, never read once. See "How the harness must read
+  fulfilment state" above.
+- **Open question, not a finding:** whether an already-fulfilled shipment is
+  ever rejected. TAA-34 re-fired the same shipment 3x within ~90s and got 200
+  every time, but that test was timing-blind and may have been racing the ~30s
+  row write. **TAA-41** re-tests it properly. Until then, don't assume either
+  way — and regardless of the answer, the harness should check shipment status
+  in Dynamo before calling fulfil rather than relying on the backend.
 
 **Item settling — a case-design consideration, not a defect.** Allocation
 writes the `SHIPMENT#` row first, then updates `ITEM#` rows one at a time. The
@@ -170,9 +233,10 @@ JJ's ">5 min = probable bug" threshold is a triage signal, not a wait-it-out
 budget. Tune from live data.
 
 **Fulfilment is irreversible on staging** (same class as `zeroEverywhere`) and
-a 200 produces a real Auspost staging shipment — confirmed, it does not even
-guard against re-fulfilling the same shipment (Finding 2 above). Repeat runs
-need fresh orders — have a couple of spare allocated orders ready.
+a 200 produces a real Auspost staging shipment. Whether it guards against
+re-fulfilling the same shipment is an open question (TAA-41) — assume it does
+not, and don't re-fire. Repeat runs need fresh orders — have a couple of spare
+allocated orders ready.
 
 ## Board split made 2026-08-07 (JJ's calls)
 
