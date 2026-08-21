@@ -15,13 +15,22 @@ function printHelp() {
 
 Options:
   --store <US|PS>         Target store (default: US)
-  --cases <name[,name]>   Comma-separated case names (single,multi,split,undeliverable,ns_sfs,ns_otc)
+  --cases <name[,name]>   Comma-separated case names. Default set is all 8:
+                          single, multi, unique, split, undeliverable,
+                          partial_undeliverable (pipeline cases) and
+                          ns_sfs, ns_otc (NewStore cases).
+                          Use --list-cases for names + descriptions.
   --repeat <n>            Number of repeats (default: 1)
   --report-dir <path>     Output directory for reports (default: ./reports)
   --quiet                 Disable verbose output in the run summary
   --list-cases            Print the available cases and exit
-  --parallel              Run SKU-disjoint cases concurrently (default: off, sequential)
-  --concurrency <n>       Max simultaneous cases within a wave under --parallel (default: 4)
+  --sequential            Run cases one at a time (default: parallel).
+                          Use for a readable single-case log, or to rule out
+                          concurrency when triaging a failure.
+  --parallel              Run SKU-disjoint cases concurrently. This is now the
+                          default; the flag is kept so existing scripts and
+                          docs keep working, and to state the intent explicitly.
+  --concurrency <n>       Max simultaneous cases within a wave (default: 4)
   --help, -h              Show this help text
 
 For ad-hoc order placement (not a regression run), use the "order" subcommand:
@@ -66,7 +75,12 @@ function parseArgs(argv) {
             config.listCases = true;
         }
         else if (argument === "--parallel") {
+            // Redundant now that parallel is the default, but harmless and kept so
+            // older scripts/docs don't break — and so a run can still say so aloud.
             config.parallel = true;
+        }
+        else if (argument === "--sequential") {
+            config.parallel = false;
         }
         else if (argument === "--concurrency" && argv[index + 1]) {
             config.parallelConcurrency = Number(argv[index + 1]);

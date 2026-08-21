@@ -6,6 +6,11 @@
  * check per case, excluding volatile fields like order ids and timings). Any
  * variance between identical runs is flagged - that's the race-condition
  * detector.
+ *
+ * Reports are deliberately disposable (JJ, 2026-08-06): the verdict matters at
+ * the time of the run, and anything worth keeping gets written up in CLAUDE.md
+ * or on the ticket. So each run prunes the directory back to the REPORT_RETENTION
+ * most recent runs - see pruneReports().
  */
 
 import * as fs from "fs";
@@ -69,7 +74,75 @@ export function diffRepeats(runs: RunSummary[]): RepeatDiff {
   return { consistent: Object.keys(variance).length === 0, variance };
 }
 
-/** Writes <stamp>.json and <stamp>.md under reportDir. Returns paths + verdict. */
+/** How many runs' reports to keep on disk. Older ones are deleted after each run. */
+export const REPORT_RETENTION = 10;
+
+/** Matches the names writeReports() produces: regression_<STORE>_<stamp>.{md,json}. */
+const REPORT_NAME = /^regression_[A-Z]+_(\d{8}T\d{6}Z)\.(md|json)$/;
+
+/**
+ * Pure half of the retention policy, so it can be tested without a filesystem.
+ * Groups report filenames by run (the <STORE>_<stamp> stem shared by the .md and
+ * .json of one run), keeps the `keep` newest stems, and returns the filenames
+ * belonging to every older run.
+ *
+ * Only ever selects names matching REPORT_NAME - anything else in the directory
+ * (a hand-saved report, the old regression-report.md dry-run sample, a stray
+ * note) is left alone rather than swept up by a glob.
+ */
+export function reportsToPrune(fileNames: string[], keep: number = REPORT_RETENTION): string[] {
+  const byStem = new Map<string, { stamp: string; names: string[] }>();
+  for (const name of fileNames) {
+    const match = REPORT_NAME.exec(name);
+    if (!match) {
+      continue;
+    }
+    const stem = name.replace(/\.(md|json)$/, "");
+    const group = byStem.get(stem);
+    if (group) {
+      group.names.push(name);
+    } else {
+      byStem.set(stem, { stamp: match[1], names: [name] });
+    }
+  }
+  // Order by the run's timestamp, NOT by filename: the store code precedes the
+  // stamp in the name, so a lexical sort of the whole stem would group by store
+  // first and prune a recent PS run ahead of an older US one. Stamps are
+  // ISO-8601 basic UTC, so they compare correctly as strings.
+  const stems = [...byStem.entries()].sort((a, b) => (a[1].stamp < b[1].stamp ? -1 : a[1].stamp > b[1].stamp ? 1 : 0));
+  const doomed = stems.slice(0, Math.max(0, stems.length - keep));
+  return doomed.flatMap(([, group]) => group.names).sort();
+}
+
+/**
+ * Deletes all but the `keep` most recent runs' reports from `dir`. Best-effort
+ * by design: a report that can't be removed (permissions, a file open in an
+ * editor) must never fail a regression run that otherwise passed, so failures
+ * are warned about and swallowed. Returns the filenames actually deleted.
+ */
+export function pruneReports(dir: string, keep: number = REPORT_RETENTION): string[] {
+  let entries: string[];
+  try {
+    entries = fs.readdirSync(dir);
+  } catch {
+    return [];
+  }
+  const deleted: string[] = [];
+  for (const name of reportsToPrune(entries, keep)) {
+    try {
+      fs.unlinkSync(path.join(dir, name));
+      deleted.push(name);
+    } catch (error) {
+      console.warn(`[reports] could not prune ${name}: ${(error as Error).message}`);
+    }
+  }
+  return deleted;
+}
+
+/**
+ * Writes <stamp>.json and <stamp>.md under reportDir, then prunes older runs
+ * back to REPORT_RETENTION. Returns paths + verdict.
+ */
 export function writeReports(config: RegressionConfig, runs: RunSummary[], outDir?: string): ReportPaths {
   const out = outDir ?? config.reportDir;
   fs.mkdirSync(out, { recursive: true });
@@ -95,6 +168,11 @@ export function writeReports(config: RegressionConfig, runs: RunSummary[], outDi
 
   const markdownPath = `${base}.md`;
   fs.writeFileSync(markdownPath, renderMarkdown(payload));
+
+  const pruned = pruneReports(out);
+  if (pruned.length > 0) {
+    console.log(`[reports] pruned ${pruned.length / 2} older run(s), keeping the ${REPORT_RETENTION} most recent`);
+  }
 
   return { json: jsonPath, markdown: markdownPath, passed: verdict };
 }

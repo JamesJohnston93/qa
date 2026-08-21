@@ -3,9 +3,11 @@
 QA automation space for Universal Store / Perfect Stranger — tooling that places real test data and verifies it flowing through the full stack (Shopify → AWS → NewStore), replacing repetitive manual checks with repeatable, reportable runs.
 
 **Owner:** JJ (james.johnston@universalstore.com.au)
-**Tracking:** Jira project [TAA](https://universalstore.atlassian.net/jira/core/projects/TAA/board) — TS rewrite (TAA-13/14/17) done; next up [TAA-21](https://universalstore.atlassian.net/browse/TAA-21) (fulfilment & rejection). Docs: Confluence QD space → [QA Automation Tool](https://universalstore.atlassian.net/wiki/spaces/QD/pages/1786970142/QA+Automation+Tool)
+**Tracking:** Jira project [TAA](https://universalstore.atlassian.net/jira/core/projects/TAA/board) — TS rewrite done ([TAA-13](https://universalstore.atlassian.net/browse/TAA-13)/[14](https://universalstore.atlassian.net/browse/TAA-14)/[17](https://universalstore.atlassian.net/browse/TAA-17)); PS ([TAA-22](https://universalstore.atlassian.net/browse/TAA-22)) and operator UX ([TAA-15](https://universalstore.atlassian.net/browse/TAA-15)) done; in progress [TAA-21](https://universalstore.atlassian.net/browse/TAA-21) (fulfilment) — an umbrella Workstream sliced into [TAA-34](https://universalstore.atlassian.net/browse/TAA-34)–[TAA-39](https://universalstore.atlassian.net/browse/TAA-39), slice A built but not yet live-confirmed. Queued behind it: [TAA-31](https://universalstore.atlassian.net/browse/TAA-31) (rejection & reallocation), [TAA-32](https://universalstore.atlassian.net/browse/TAA-32) (click & collect), [TAA-33](https://universalstore.atlassian.net/browse/TAA-33) (order-finalised). One live run outstanding under [TAA-40](https://universalstore.atlassian.net/browse/TAA-40). Docs: Confluence QD space → [QA Automation Tool](https://universalstore.atlassian.net/wiki/spaces/QD/pages/1786970142/QA+Automation+Tool)
 
 All tooling targets **staging only**.
+
+> **Reading this cold?** `shopify-order-creator/CLAUDE.md` is the living source of truth — per-step sign-offs, live-run results, findings, and the current priority list. This README is the orientation layer. Current branch state *(2026-08-21)*: **`taa-22-ps`** is **5 commits ahead of `origin/taa-22-ps` and not yet merged to `main`** (`origin/main` is at `2783e1d`) — those commits carry the parallel-by-default flip, so nothing downstream is real until they are pushed. A second branch **`taa-34-fulfil-client`** (`829db11`) lives in a separate worktree at `../qa-taa-34` and holds fulfilment slice A. `taa-14-speedup`, `taa-15-cli-port` and `taa-17-newstore` are merged leftovers that can be pruned.
 
 ## Layout
 
@@ -28,19 +30,32 @@ Each baseline case seeds DynamoDB inventory to force a specific allocation outco
 4. Refund path (undeliverable cases) — Shopify refund issued, item status flips to `REMOVED`
 5. `staging-inventory-v2` — stock decrements exactly where allocated, nowhere else
 
-Pipeline cases: single, multi, unique, split, undeliverable, partial-undeliverable. NewStore cases (`ns_sfs`, `ns_otc`) inject an order and verify read-back. `--repeat N` reruns the identical set and diffs results — any variance between identical runs is flagged as a race-condition signal. `--parallel` runs SKU-disjoint cases concurrently (with a shared-nothing wave scheduler) to cut wall-clock time.
+The default set is **8 cases**. Each case declares a `kind`, and the runner partitions on it:
+
+| Kind | Cases | Path |
+| --- | --- | --- |
+| `pipeline` | `single`, `multi`, `unique`, `split`, `undeliverable`, `partial_undeliverable` | Full Shopify → AWS stage chain above. Gets the live progress tracker and the parallel wave scheduler (default; `--sequential` opts out). |
+| `newstore` | `ns_sfs`, `ns_otc` | Inject via `POST /v0/d/fulfill_order`, read back via `GET /v0/d/external_orders/{external_id}`, assert the SKU/qty map. Never touches Shopify or `staging-inventory-v2`, so always runs sequentially. |
+
+`--list-cases` prints the live set with descriptions — trust it over any list in the docs.
+
+`--repeat N` reruns the identical set and diffs results — any variance between identical runs is flagged as a race-condition signal.
+
+**Cases run in parallel by default** (since 2026-08-06): a shared-nothing wave scheduler runs SKU-disjoint cases concurrently, capped at `--concurrency` (default 4). Each store's SKU pool holds 14 variants and the 6 pipeline cases claim 10 fully disjoint slots, which is what makes that safe — and parallel runs are proven byte-identical to sequential ones on both stores — though that evidence comes from explicit `--parallel` runs *before* the 2026-08-06 default flip; no live staging run has happened since it, which is what [TAA-40](https://universalstore.atlassian.net/browse/TAA-40) covers. Pass `--sequential` for a readable one-case-at-a-time log, or to rule out concurrency when triaging a failure. Repeats always run serially either way.
 
 ## Status
 
 **TS rewrite complete — zero Python.** The tool is a single maintainable TypeScript suite covering Shopify + AWS + NewStore end to end.
 
-- **Regression baseline** (TAA-13): green on US and PS at `--repeat 3`, zero variance.
-- **Run-time** (TAA-14): parallel execution + tuned polling took the full `--repeat 3` gate from ~20 min to ~4 min on US. PS SKU-pool wiring is pending a staging token scope ([TAA-22](https://universalstore.atlassian.net/browse/TAA-22)).
-- **NewStore** (TAA-17): injection, read-back, cases 7–8, and receipts all in TS; live-confirmed on US.
+- **Regression baseline** (TAA-13, done): green on US and PS at `--repeat 3`, zero variance.
+- **Run-time** (TAA-14, done): parallel execution + tuned polling took the full `--repeat 3` gate from ~20 min to ~4 min on US — ~4.9x, with byte-identical stable signatures vs sequential.
+- **NewStore** (TAA-17, done): injection, read-back, cases 7–8, and receipts all in TS; live-confirmed on both stores.
+- **Perfect Stranger** (TAA-22, done): PS lost its static Shopify token when Shopify retired that auth model Jan 1 2026, and now authenticates by OAuth client-credentials. Done and live-confirmed, PS SKU pool grown 4→14 and made disjoint like US, full 8-case set PASS both sequential (4:13) and `--parallel` (1:36, identical signature). *(Status update, 2026-08-21: the ticket is **Done**. Its last acceptance item — a clean `--store PS --parallel --repeat 3` — was still unrun after two weeks, so it now has its own ticket, [TAA-40](https://universalstore.atlassian.net/browse/TAA-40), rather than living in a comment on a closed ticket. That same run is also the only outstanding live confirmation of the parallel-by-default flip.)*
+- **Operator UX** (TAA-15, done): the `order` subcommand covers the retired Python CLI's daily-use path. *(Status update, 2026-08-06: closed. The operator surface is a **CLI, not a GUI** — settled, don't reopen. The remaining order-builder features — settings menu, presets/random orders, stress test, associate switching for OTC, fire-and-verify — carried over to [TAA-29](https://universalstore.atlassian.net/browse/TAA-29) so closing the parent didn't lose them. See "Not yet ported" in `qa-order-cli-tool-documentation.md`.)*
 
-During its own validation the harness has caught real backend defects — an intermittent undeliverable→refund gap and an order-ID collision — proving value beyond regression coverage.
+During its own validation the harness has caught real backend defects — an intermittent undeliverable→refund gap (~15% of `partial_undeliverable` runs, orders #9735 and #9771, deliberately not ticketed yet) and a NewStore external-ID collision that silently returned an unrelated existing order — proving value beyond regression coverage. `CLAUDE.md` has the full evidence for each.
 
-Next: fulfilment verification + rejection/reallocation cases ([TAA-21](https://universalstore.atlassian.net/browse/TAA-21)).
+Next: fulfilment ([TAA-21](https://universalstore.atlassian.net/browse/TAA-21), Scope-of-Work phase 3), sliced into six session-sized tickets [TAA-34](https://universalstore.atlassian.net/browse/TAA-34)–[TAA-39](https://universalstore.atlassian.net/browse/TAA-39). Slice A (the fulfil client + a hand-drivable `fulfil` subcommand) is **built and committed** on `taa-34-fulfil-client` but has never been run against staging — that live confirm is the immediate next action. Rejection & reallocation (phase 4) split out to [TAA-31](https://universalstore.atlassian.net/browse/TAA-31) and is blocked behind TAA-21, since it reuses almost everything TAA-21 builds.
 
 ## Run it
 
@@ -49,9 +64,12 @@ Prereqs: `US_ACCESS_TOKEN` (static) / `PS_CLIENT_ID` + `PS_CLIENT_SECRET` (OAuth
 ```bash
 cd shopify-order-creator/ts
 
-# Regression suite (bare invocation = regression run)
-node dist/index.js --store US --cases single
-node dist/index.js --store US --parallel --repeat 3      # full parallel gate
+# Regression suite (bare invocation = regression run, all 8 cases, parallel)
+node dist/index.js --store US
+node dist/index.js --store US --cases single             # one case
+node dist/index.js --store US --repeat 3                 # full gate (~4 min)
+node dist/index.js --store US --sequential --cases split # one at a time, for triage
+node dist/index.js --list-cases
 
 # Place an ad-hoc test order (order subcommand)
 node dist/index.js order --store US --items 32625134x2,33006246x1
@@ -59,17 +77,23 @@ node dist/index.js order --ns sfs --items 33006246x1     # NewStore injection
 node dist/index.js order --help
 ```
 
-A repo-root wrapper `shopify-order-creator/run-regression.sh` forwards to the regression run. Reports (markdown + diffable JSON, per-stage timings) land in `shopify-order-creator/ts/reports/`.
+`shopify-order-creator/run-regression.sh` is a wrapper that installs/builds if needed and forwards to the regression run.
 
-Offline tests (no staging access needed):
+Reports (markdown + diffable JSON, per-stage timings) land in `shopify-order-creator/ts/reports/`. They're **disposable** — each run prunes the directory back to the 10 most recent runs. Anything worth keeping gets written up in `CLAUDE.md` or on the ticket, so don't treat the folder as an archive.
+
+One caveat when reading per-stage timings: since TAA-14, `orders_table` and `allocation` share a single composite poll loop, so both measure from the same start. **Don't sum the per-stage numbers to get wall-clock** — use the measured wall-clock.
+
+Offline tests (no staging access needed) — pure logic only: arg parsing, payload shape, assertions, scheduling, report diffing. Live staging runs are the separate, explicit confirm step for anything network-facing.
 
 ```bash
 cd shopify-order-creator/ts
-npm run build && node --test tests/*.test.js
+npm run build && npm test          # == node --test tests/*.test.js
 ```
 
 ## Notes for operators
 
-- Orders are placed as dedicated QA customers (`QAauto@universalstore.com.au` / `QAauto@perfectstranger.com.au`) — never staff accounts.
-- Undeliverable cases zero a SKU's stock at **every** location (~194 rows) to force the outcome — deliberate and destructive, but safe here: staging is test-only and cases draw from a dedicated QA SKU pool (`sku-lists/`).
+- Orders are placed as dedicated QA customers (`QAauto@universalstore.com.au` / `QAauto@perfectstranger.com.au`) — never staff accounts. One known loose end: the NewStore mock customer's `ns_id` still points at the original author's real NewStore profile and needs its own profile before live use.
+- Undeliverable cases zero a SKU's stock at **every** location (~194 rows in staging, not just the four documented web/DC ones) to force the outcome. This is deliberate — it's *the* mechanism for forcing an undeliverable — but it is destructive and not reversible, since no prior values are captured. Cases draw from the pool in `sku-lists/`, and those are ordinary staging-catalogue products rather than dedicated "do not sell" QA items, so treat any change that broadens the zeroing scope as a real risk.
 - `ATP#INTERNATIONAL` / `ATP#STUDIO` / `ATP#ALL` are async aggregate mirrors, excluded from inventory assertions.
+- Undeliverable cleanup asserts `status === REMOVED`, not row absence — staging never deletes the `ITEM#` rows, it flips their status ~40–60s after the refund.
+- Strict by default: every client throws on failure, no silent fallbacks or synthetic data. `flows/receipts.ts` is the one documented exception (non-fatal by design — a receipt decorates an already-successful order rather than checking correctness). Don't generalise it.

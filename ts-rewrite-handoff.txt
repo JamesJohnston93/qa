@@ -1,41 +1,21 @@
-TypeScript rewrite handoff for QA automation harness
+SUPERSEDED — do not read this as current state.
 =================================================
 
-Repository: /Users/james.johnston/Documents/GitHub/qa
-Project: shopify-order-creator/
+This file was the Jul 17 2026 handoff note for the TypeScript rewrite scaffold.
+Everything it described as "next" has since been built, and the file names it
+listed (src/verification/assertions.ts, the scaffold-era runner) no longer
+exist — the module became src/verify/ and the harness is complete.
 
-Status (Jul 17, 2026)
----------------------
-A TypeScript rewrite scaffold has been created under shopify-order-creator/ts to start porting the Python regression baseline into a TS implementation aligned with the TAA/TAA-3 design docs.
+The rewrite finished 2026-08-04: zero Python remains, the TS harness covers
+Shopify + AWS + NewStore end to end.
 
-What exists now
----------------
-- shopify-order-creator/ts/package.json and tsconfig.json for a minimal TS build/run setup
-- shopify-order-creator/ts/src/config.ts with baseline config and case names
-- shopify-order-creator/ts/src/runner.ts with a runnable case runner that produces a run summary
-- shopify-order-creator/ts/src/flows/orderFlow.ts with a first-order flow stub using client abstractions
-- shopify-order-creator/ts/src/clients/shopify.ts, dynamo.ts, and newstore.ts for module boundaries
-- shopify-order-creator/ts/src/verification/assertions.ts and report.ts for evidence output/reporting
+Where to look instead:
 
-Verified locally
-----------------
-Commands run successfully:
-- cd /Users/james.johnston/Documents/GitHub/qa/shopify-order-creator/ts && npm install
-- cd /Users/james.johnston/Documents/GitHub/qa/shopify-order-creator/ts && npm run build
-- cd /Users/james.johnston/Documents/GitHub/qa/shopify-order-creator/ts && npm start
+- shopify-order-creator/CLAUDE.md ......... living project context, authoritative
+- README.md ............................... orientation + how to run
+- shopify-order-creator/ts-rewrite-dev-doc.md ... the rewrite history
+- Jira project TAA / Confluence space QD → "QA Automation Tool"
 
-Observed result:
-- TypeScript build succeeded
-- Runner executed successfully
-- Generated reports:
-  - shopify-order-creator/ts/reports/regression-report.md
-  - shopify-order-creator/ts/reports/regression-report.json
-
-Next implementation focus
-------------------------
-1. Full baseline case definitions (single, multi, unique, split, undeliverable, partial-undeliverable)
-2. Inventory seeding plus polling logic
-3. Readers and verification modules for Shopify, AWS/DynamoDB, and NewStore
-4. Repeat-run variance reporting and CLI flags matching the Python parity contract
-
-This scaffold is a runnable starting point for the TAA rewrite work and can be used as handoff context for later admin/co-working work.
+The original text of this note is preserved verbatim in git history, and in
+CLAUDE.md's "TypeScript rewrite handoff (Jul 17, 2026) — HISTORICAL" section.
+Safe to delete this file.

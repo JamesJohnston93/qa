@@ -1,6 +1,6 @@
 # Regression Package Design — Omni-Channel Alignment Baseline
 
-**Status:** Draft for review
+**Status:** Implemented and signed off (parity sign-off 2026-07-22, TAA-13). This page is the design/parity spec it was built against — kept as the historical record; treat `CLAUDE.md` as authoritative for current status and `ts/src/` as the live implementation.
 **Owner:** JJ
 **Relates to:** TAA-3, QA Order & Fulfilment Verification Harness Scope of Work
 
@@ -12,13 +12,15 @@ This package is built in Python first, reusing the existing creation modules. It
 
 ## Current state (from code review, Jul 2026)
 
+*(Status update, 2026-08-06: all five gaps below are now closed — see the per-bullet annotations. Kept as written because it explains why the design is shaped the way it is. The Python tool this describes no longer exists: the `regression/` package was `git rm`'d 2026-07-31 (TAA-17) and the interactive CLI + its five supporting modules 2026-08-04 (TAA-15 step 3). Zero Python remains.)*
+
 The existing tool is creation-only. It places Shopify draft orders and injects NewStore SFS/OTC orders, and manages `staging-inventory-v2` stock (`ensure_stock` top-up, `split_stock` across ATP#100/99/407/640). What it does not do:
 
-- **Created-order IDs are discarded.** `complete_draft_order` returns nothing and the GraphQL doesn't select the final order ID — there is nothing to verify against.
-- **No verification exists.** Success is the absence of an API error. No order read-back, no `staging-orders-v2` / `staging-shipments` reads, no inventory before/after diff, no polling for the async pipeline.
-- **Silent failure paths.** AWS errors are swallowed (order proceeds anyway), unknown SKUs are skipped, prices fall back to $1.00.
-- **Non-determinism.** Random SKUs and names, first-available shipping rate, file-based order counter that isn't concurrency-safe.
-- **State via mutable globals** and import-time side effects, blocking headless/parallel runs.
+- **Created-order IDs are discarded.** `complete_draft_order` returns nothing and the GraphQL doesn't select the final order ID — there is nothing to verify against. *(Closed: `ShopifyClient.createDraftOrder` always returns `{orderId, orderName, createdAt}`.)*
+- **No verification exists.** Success is the absence of an API error. No order read-back, no `staging-orders-v2` / `staging-shipments` reads, no inventory before/after diff, no polling for the async pipeline. *(Closed: `readers/{shopifyReader,dynamoReader,newstoreReader}.ts`, `verify/*.ts`, `polling.ts`.)*
+- **Silent failure paths.** AWS errors are swallowed (order proceeds anyway), unknown SKUs are skipped, prices fall back to $1.00. *(Closed: strict is the only mode — every client throws. `flows/receipts.ts` is the one documented, narrow exception.)*
+- **Non-determinism.** Random SKUs and names, first-available shipping rate, file-based order counter that isn't concurrency-safe. *(Closed: pinned per-case SKU slots in `cases/baselineCases.ts`, fixed `BASELINE_CUSTOMERS`, real `draftOrderCalculate` rate fetch, and collision-free `QA{SFS|OTC}_{timestamp}_{random}` external IDs — `order_counter.json`'s scheme was deliberately not ported, its reuse bug returns an existing unrelated order.)*
+- **State via mutable globals** and import-time side effects, blocking headless/parallel runs. *(Closed: config is an explicit object built by the caller and passed down; `--parallel` wave scheduling landed in TAA-14 Phase B.)*
 
 ## Design principles
 
@@ -29,6 +31,8 @@ The existing tool is creation-only. It places Shopify draft orders and injects N
 5. **Evidence-based results.** A failure report includes the actual vs expected state from each system, not just "mismatch."
 
 ## Package architecture
+
+*(Status update, 2026-08-06: the Python tree below is the original design and no longer exists on disk — see the mapping to the real `ts/src/` layout underneath it. The design's `verification/` concept became `verify/`.)*
 
 ```
 shopify-order-creator/
@@ -52,7 +56,25 @@ shopify-order-creator/
 
 Existing modules are reused as the creation layer (`orders_processor`, `newstore_orders`, `aws_inventory`, `newstore_client`). `main.py` and its menus are bypassed entirely.
 
+### As built — the real layout (`shopify-order-creator/ts/src/`)
+
+| Design (Python) | As built (TS) |
+| --- | --- |
+| `regression/runner.py` — `python -m regression ...` | `cli.ts` + `runner.ts`, entry `index.ts` — `node dist/index.js ...` (plus `cli-order.ts` for the ad-hoc `order` subcommand, TAA-15) |
+| `cases/` | `cases/baselineCases.ts` (pipeline cases 1–6) + `cases/newstoreCases.ts` (cases 7–8) |
+| `flows/` | `flows/{orderFlow,inventoryFlow,newstoreOrders,receipts}.ts` |
+| `readers/shopify_reader.py`, `dynamo_reader.py`, `newstore_reader.py` | `readers/{shopifyReader,dynamoReader,newstoreReader}.ts` |
+| `verify/inventory.py`, `orders.py`, `shipments.py`, `refunds.py` | `verify/{index,orders,refunds,shipments,inventory,newstore}.ts` |
+| `polling.py` | `polling.ts` |
+| `report.py` | `report.ts` |
+| `config.py` | `config.ts` |
+| — (not in the design) | `clients/{shopify,dynamo,newstore}.ts`, `variants.ts` (SKU→GID pools), `scheduler.ts` (`--parallel` waves) and `progress.ts` (live progress line), both TAA-14 |
+
+There is no `verification/` directory — the early TS scaffold's placeholder `verification/` module was replaced by `verify/`, and any doc still referencing `verification/assertions.ts` is stale. `shopify-order-creator/run-regression.sh` is the wrapper (it lives in `shopify-order-creator/`, not the repo root). Offline tests: 20 files under `ts/tests/`, 169 cases, `npm test`. *(Count corrected 2026-08-21; `tests/cli-fulfil.test.js` and `tests/fulfilment.test.js` arrive with TAA-34, on the unmerged `taa-34-fulfil-client` branch.)*
+
 ## Required changes to existing modules
+
+*(Status update, 2026-08-06: historical — this work was done during the Python phase, and every file named in the table has since been deleted. Kept for the record of what had to change and why.)*
 
 Small and non-breaking to the CLI:
 
@@ -68,16 +90,20 @@ Small and non-breaking to the CLI:
 
 Run per store (US and PS) unless noted. Each case seeds its own inventory state first.
 
-| # | Case | Inventory setup | Expected outcome |
-| --- | --- | --- | --- |
-| 1 | Single item, single store | All stock at one ATP location | 1 shipment, allocated to that store |
-| 2 | Multi (3× same SKU) | All stock at one location | 1 shipment, 3 ITEM# rows, correct units (Shopify merges dupes; Dynamo/NS don't — assert accordingly) |
-| 3 | Unique (3 different SKUs) | All SKUs at one store | 1 combined shipment |
-| 4 | Split shipment | Each SKU stocked at a different store only | One shipment per store, locations correct |
-| 5 | Undeliverable | Zero stock everywhere | Item marked UNDELIVERABLE, Shopify refund issued, item rows cleaned up in both AWS tables (shipments: status → `REMOVED`, not deleted — live finding Jul 17) |
-| 6 | Partial undeliverable | One SKU stocked, one zero | Mixed: allocated shipment + refunded undie |
-| 7 | NS SFS injection | Standard top-up | Order lands in NewStore, inventory correct |
-| 8 | NS OTC injection | Standard top-up | Preconfirmed/fulfilled order, no shipping |
+*(Status update, 2026-08-06: all 8 cases are built and are the default set — they all run when `--cases` is omitted. Case names as implemented added below, since those are what you type. `CaseDefinition`/`NewStoreCaseDefinition` carry a `kind: "pipeline" | "newstore"` discriminator and `runner.ts`'s `run()` partitions on it: the six pipeline cases get the progress tracker + `--parallel` wave scheduler, the two NewStore cases always run sequentially — they're a 2-stage inject → read-back round trip with no Shopify/Dynamo state.)*
+
+| # | Case | Name / kind | Inventory setup | Expected outcome |
+| --- | --- | --- | --- | --- |
+| 1 | Single item, single store | `single` · pipeline | All stock at one ATP location | 1 shipment, allocated to that store |
+| 2 | Multi (3× same SKU) | `multi` · pipeline | All stock at one location | 1 shipment, 3 ITEM# rows, correct units (Shopify merges dupes; Dynamo/NS don't — assert accordingly) |
+| 3 | Unique (3 different SKUs) | `unique` · pipeline | All SKUs at one store | 1 combined shipment |
+| 4 | Split shipment | `split` · pipeline | Each SKU stocked at a different store only | One shipment per store, locations correct |
+| 5 | Undeliverable | `undeliverable` · pipeline | Zero stock everywhere | Item marked UNDELIVERABLE, Shopify refund issued, item rows cleaned up in both AWS tables (shipments: status → `REMOVED`, not deleted — live finding Jul 17) |
+| 6 | Partial undeliverable | `partial_undeliverable` · pipeline | One SKU stocked, one zero | Mixed: allocated shipment + refunded undie |
+| 7 | NS SFS injection | `ns_sfs` · newstore | ~~Standard top-up~~ — as built these cases never touch `staging-inventory-v2` | Order lands in NewStore, inventory correct |
+| 8 | NS OTC injection | `ns_otc` · newstore | ~~Standard top-up~~ — as above | Preconfirmed/fulfilled order, no shipping |
+
+Note: `cli.ts`'s own `--help` text lists only six of these names (it omits `unique` and `partial_undeliverable`) — a known defect in the help string, not in the case set. `--list-cases` is the reliable listing.
 
 ### Assertions per case (the alignment checks)
 
@@ -102,12 +128,14 @@ Each run produces a markdown summary and a JSON artifact: per-case pass/fail, ti
 ## Out of scope for v1 (next increments)
 
 - **Modifier isolation cases:** order-level vs item-level discounts (half-price shipping vs $5 off item), address change + set-default propagation across systems, new product types/mappings. Example coverage to be sourced from Futura. These slot in as new `cases/` modules — the architecture doesn't change.
-- Fulfilment (Auspost), rejection/reallocation, cancellation beyond the undie path — Scope of Work phases 3–5.
+- Fulfilment (Auspost), rejection/reallocation, cancellation beyond the undie path — Scope of Work phases 3–5. *(Status update, 2026-08-06: fulfilment verification and rejection/reallocation — Scope of Work phases 3 and 4 — are now in scope as **TAA-21**, next up once TAA-22 closes. They slot in as new `cases/` modules; since the `kind: "pipeline"` discriminator landed, pipeline-shaped cases get tracker + `--parallel` support for free.)* *(Status update, 2026-08-21: the two were separated — TAA-21 is fulfilment only, an umbrella sliced into [TAA-34](https://universalstore.atlassian.net/browse/TAA-34)–[TAA-39](https://universalstore.atlassian.net/browse/TAA-39); rejection/reallocation is [TAA-31](https://universalstore.atlassian.net/browse/TAA-31), blocked behind it. And it is more than new `cases/` modules: slice A (TAA-34, built and committed on `taa-34-fulfil-client`) adds a new `clients/fulfilment.ts` and a hand-drivable `fulfil` subcommand (`cli-fulfil.ts`) wired into `index.ts`. Regression cases proper are the last slice, TAA-39.)*
 - Volume/stress beyond `--repeat`, AWS pipeline monitoring (alarms — TAA-2), CI/CD.
 
 ## Definition of done — v1
 
-- `python -m regression` runs the full baseline set headlessly against staging for both stores and exits non-zero on any failure.
-- All 8 cases pass repeatably (`--repeat 3` with zero variance) on a healthy staging environment.
-- Reports produced per run; a failure report contains enough evidence to raise a defect without re-running.
-- The case set + assertions are signed off as the parity spec for the TypeScript rebuild.
+*(Status update, 2026-08-06: all four met — 2026-07-22, TAA-13. The invocation is `node dist/index.js`, not `python -m regression`; the flag contract is otherwise as designed.)*
+
+- ~~`python -m regression`~~ **`node dist/index.js`** runs the full baseline set headlessly against staging for both stores and exits non-zero on any failure. **Met** — exit 0 = all cases passed and repeats consistent, 1 = any failure or repeat variance.
+- All 8 cases pass repeatably (`--repeat 3` with zero variance) on a healthy staging environment. **Met for the 6 baseline cases on both stores, 2026-07-22:** US orders #9740–#9757 (`regression_US_20260722T050946Z.md`) and PS orders #3252–#3269 (`regression_PS_20260722T052237Z.md`), both PASS with zero stable-signature variance. Cases 7–8 landed later (TAA-17) and are green in the full 8-case default set on US; PS's 8-case set passes single-pass sequential and `--parallel`, but **`--store PS --parallel --repeat 3` is still to be re-run cleanly**. *(Status update, 2026-08-21: TAA-22 was closed with this item outstanding; the run is now owned by [TAA-40](https://universalstore.atlassian.net/browse/TAA-40), which also covers the only live confirmation of the parallel-by-default flip.)*
+- Reports produced per run; a failure report contains enough evidence to raise a defect without re-running. **Met** — `ts/reports/regression_<STORE>_<ISO8601Z>.md` + `.json` per run.
+- The case set + assertions are signed off as the parity spec for the TypeScript rebuild. **Met** — parity signed off 2026-07-22 against the Python `regression/` v0.1 package, which was then retired (`git rm`'d 2026-07-31).

@@ -3,35 +3,232 @@
 TypeScript CLI + regression harness (`ts/`) for placing test orders on Universal Store / Perfect Stranger **staging** and verifying omni-channel alignment across Shopify, AWS (DynamoDB), and NewStore. Two entry points from the same build: `node dist/index.js order ...` places one ad-hoc test order on demand (TAA-15); `node dist/index.js` with no subcommand runs the automated regression suite (TAA-13/14/17).
 
 **Owner:** JJ (james.johnston@universalstore.com.au). Tool originally by Jared Davis (as a Python CLI — see "TS rewrite complete" below).
-**Tracking:** Jira project TAA (current: TAA-22, in progress — see "TAA-22" below). Docs: Confluence QD space → "QA Automation Tool" page tree — see `regression-package-design.md` and `scope-of-work-reworked.md` in this folder, and `qa-order-cli-tool-documentation.md` for the `order` command's user-facing docs.
+**Tracking:** Jira project TAA (current: TAA-21 fulfilment — slice A **TAA-34** in flight, built but not live-confirmed; TAA-40 owns the outstanding PS live run; TAA-31/32/33 queued behind TAA-21). Docs: Confluence QD space → "QA Automation Tool" page tree — see `regression-package-design.md` and `scope-of-work-reworked.md` in this folder, and `qa-order-cli-tool-documentation.md` for the `order` command's user-facing docs.
 
-## ⚠ NEXT SESSION — CLOSE OUT TAA-22, THEN RE-PARALLELISE ACROSS STORES
+## ⚠ NEXT SESSION — FINISH TAA-34 (fulfilment slice A) LIVE
 
-PS OAuth (step 1) and PS SKU wiring (step 2) are **done** — see "TAA-22" below.
-A fresh single-pass `--store PS --parallel --cases <6 baseline>` re-run
-(2026-08-04, see "TAA-22 Step 3" below) confirms the earlier ~29 min slowdown
-was a one-off — staging responded at normal speed this time (per-stage timings
-back in the historical range, e.g. `allocation` 42-47s, `cleanup` 16-31s,
-nothing near a timeout) — but surfaced a new, separate isolated finding:
-`split` failed an inventory-decrement check (order #3297, SKU
-`33948010@ATP#99` never dropped 99→98 inside the poll window). Logged, not
-escalated to a ticket yet (same treatment as the historical refund-automation
-gap). One item is still open
-before TAA-22 can close: **`--store PS --repeat 3` was killed mid-run** on an
-earlier session where staging responded much slower than normal (projected
-~29 min total vs US's ~4 min `--parallel --repeat 3` gate) — not diagnosed as
-a code defect, but not yet re-run at `--repeat 3` since. Next session: re-run
-`--store PS --parallel --repeat 3`; if the `split`/inventory-decrement miss
-or the slowdown recurs, escalate as a real backend/staging finding (same
-category as the historical intermittent refund-automation miss elsewhere in
-this file).
+**Step 0 — push first; nothing below is real until this happens.** Four commits
+on `taa-22-ps` are local-only, including the parallel-by-default flip:
+`d595eba`, `0082604`, `30f2367`, `fdaa31b`. Push, merge to `main`, then rebase
+the `taa-34-fulfil-client` worktree onto it — that branch was cut from
+`origin/main` and does not carry the flip.
 
-Once that's clean, the broader goal: a single "full basic regression run"
-executes **each case exactly once, in parallel, across US + PS + NS as
-needed, target <6 min** (US and PS are fully disjoint stores → can run
-concurrently). Then TAA-21 (rejection + fulfilment).
+**Step 1 — TAA-34 live confirm.** Slice A is **built and committed** already
+(`829db11`, worktree `../qa-taa-34`): `clients/fulfilment.ts`, `cli-fulfil.ts`,
+wired into `index.ts`, plus `tests/fulfilment.test.js` and
+`tests/cli-fulfil.test.js`. What it has never had is the one thing the ticket
+actually asks for — a real call against staging:
+
+```
+node dist/index.js fulfil --shipment <bare-uuid> --item ITEM#<uuid>
+```
+
+200 + a tracking number closes it. Needs `FULFIL_BASE_URL` / `FULFIL_API_KEY`
+in env and a freshly allocated order to fulfil. **Fulfilment is irreversible** —
+a fulfilled staging shipment stays fulfilled, so place two or three spare orders
+before starting. Re-firing the same shipment is the cheap negative test: the 400
+body (`"can't fulfill shipment with status fulfilled"`) must surface in the
+thrown error, not a bare status code.
+
+Then tick TAA-34, record the shipment id + tracking number here, and move to
+**TAA-35** (widen `ShipmentItem` with `shipmentItemId` / `shipmentId`).
+
+**Deferred, now owned by TAA-40:** `--store PS --parallel --repeat 3`. It is
+TAA-22's last unticked acceptance item *and* the only live confirmation of the
+parallel-by-default flip (`defaultConfig()` set `parallel: true` on 2026-08-06;
+no live run since, proven equivalent offline at 169/169 but never on staging).
+It sat in a comment on a closed ticket for two weeks — as of 2026-08-21 it has
+its own ticket. TAA-22 stays Done. If that run fails, the two live risks — the
+~29 min staging slowdown, and the isolated PS `split` inventory-decrement miss
+(order #3297, `33948010@ATP#99` never dropped 99→98 in the window) — are real
+backend findings, not harness defects.
+
+**Gotcha:** a shell predating TAA-22 may still export the retired
+`PS_ACCESS_TOKEN` and lack `PS_CLIENT_ID`/`PS_CLIENT_SECRET`. The failure
+message doesn't point back at the stale token.
+
+**The full slice plan.** TAA-21 is now an
+umbrella **Workstream**; the work is six child tasks, each sized for one
+sitting. Do them in order — each builds on the last. Point a session at one
+ticket rather than at TAA-21, to keep context small.
+
+| Slice | Ticket | Done when |
+| --- | --- | --- |
+| A | **TAA-34** | Paste a shipment id + item ids by hand → 200 + tracking number |
+| B | **TAA-35** | Payload built from the shipment's real rows, any item count |
+| C | **TAA-36** | One command fulfils a whole order end to end |
+| D | **TAA-37** | Fulfilled state asserted in shipments + orders tables |
+| E | **TAA-38** | Shopify's fulfilment view checked against the allocation |
+| F | **TAA-39** | `fulfil_single` / `fulfil_split` green on both stores under `--repeat` |
+
+**Start with TAA-34.** It touches no DynamoDB and asserts nothing — it exists
+to prove the endpoint contract against real staging before three more slices
+get built on top of it. If the contract differs from what's documented, that's
+far cheaper to find in A than in D.
+
+A–C are the walking skeleton. D–E make it a test rather than a script. F folds
+it into the regression suite. C on its own gives an operator-facing "fulfil
+this order" command, useful even if the rest slips.
+
+Full contract and design detail: dev doc
+https://universalstore.atlassian.net/wiki/spaces/QD/pages/1866727460
+
+**This project is staging-only. Production endpoints, hosts and keys stay out
+of this repo and out of the docs entirely — by design, not by omission.**
+
+Endpoint: `POST /staging/fulfil` on
+`celmqip2md.execute-api.ap-southeast-2.amazonaws.com`, `X-API-KEY` auth.
+Base URL + key from env (`FULFIL_BASE_URL`, `FULFIL_API_KEY`), never
+committed. The client asserts its host is the staging host and throws
+otherwise.
+
+Payload facts worth not re-deriving:
+- `shipment_id` = the `SHIPMENT#<id>` sort key with the prefix **stripped**
+  (bare UUID).
+- `shipment_item_id` = the `ITEM#<uuid>` sort key with the prefix
+  **retained**, verbatim. The asymmetry is real, not a typo — pin it in a test.
+- One package per item; multi-item packages are legal but not exercised.
+- Weights (`weight` / `final_weight` / `packaging_weight`) are unvalidated
+  pass-through constants. Nothing asserts on them.
+- `fulfiller` = `"QA auto fulfilment"`.
+- `fulfilled_at` = `YYYY-MM-DD HH:MM:SS`, **Australia/Brisbane**, second
+  precision, no milliseconds. Format explicitly via `Intl.DateTimeFormat` with
+  `timeZone: "Australia/Brisbane"` — NOT host local time.
+- 200 = success; Auspost returns a tracking number the backend writes onto the
+  shipment row (assert it). 400 = failure with a message worth surfacing
+  ("can't fulfill shipment with status fulfilled", "shipment is on hold",
+  "contact dev support"). Carry the response body into the thrown error.
+- Any shipment that isn't already fulfilled is fulfillable.
+
+**Item settling — a case-design consideration, not a defect.** Allocation
+writes the `SHIPMENT#` row first, then updates `ITEM#` rows one at a time. The
+item count in the payload must equal the number of items carrying that
+`shipmentId`. Fulfilling on first sight of a shipment id would send a short
+payload — that's a flaw in how the case was built, not a finding. TAA-36 owns
+waiting for the counts to settle. Whether that's a formal poll stage or handled
+inline is worth deciding with real timings in front of you; split it out if it
+grows.
+
+**Wiring traps (mostly TAA-39's problem, but know them now):**
+`stageSequenceFor` (`progress.ts:11`) must gain any new stage name or run
+progress/ETA silently drift — it is NOT derived from the runner's actual
+`stageDone()` calls. `cli.ts:107` indexes `allCases[name]` unguarded, so a
+pipeline case outside `buildCases()`'s return throws there. `hasRefund` is
+computed in three places (`runner.ts:159`, `runner.ts:463`, `cli.ts:107`).
+`printHelp()`/`printCases()` hardcode "all 8".
+
+Poll windows proposed: `fulfilment` 150s (TAA-37). Deliberately not 300s —
+JJ's ">5 min = probable bug" threshold is a triage signal, not a wait-it-out
+budget. Tune from live data.
+
+**Fulfilment is irreversible on staging** (same class as `zeroEverywhere`) and
+a 200 produces a real Auspost staging shipment. Repeat runs need fresh orders —
+have a couple of spare allocated orders ready before starting TAA-34.
+
+## Board split made 2026-08-07 (JJ's calls)
+
+TAA-21 was rescoped, converted to an umbrella **Workstream** with six child
+slices (TAA-34..39, see Step 2 above), and three separate tickets split out of
+it. It previously read "verification only" on the assumption the fulfil call
+was already wired in — wrong: **nothing fulfilment-related exists in `ts/src`
+at all**, so it is build + verify, and that is why it needed slicing.
+
+- **TAA-21** — fulfilment: wire the call, verify fulfilled state, allocation
+  reflection. Next up.
+- **TAA-7 — CLOSED**, folded into TAA-21. The call is one HTTP POST built from
+  data the harness already reads; splitting it meant two tickets editing the
+  same modules. Correction for the record: the fulfil call **predates Kian** —
+  it's an existing US service sent via RapidAPI, not his work.
+- **TAA-31** — rejection & reallocation (was phase 4 of TAA-21). Blocked on JJ
+  supplying the reject call.
+- **TAA-32** — click & collect fulfilment. Pickup has no carrier and no
+  tracking number, so it needs its own definition of done.
+- **TAA-33** — order-finalised transaction. Fires when the last open item
+  closes, by fulfilment **or** by going undeliverable and being refunded — so
+  it spans TAA-21 and the existing refund cases. Owns building the
+  `TRANSACTION#` row reader (nothing reads transaction rows today). Note the
+  refund half is already driven every run by `undeliverable` /
+  `partial_undeliverable` and is entirely unasserted — could be verified early.
+
+Allocation reflection (Scope-of-Work workstream 2) stays on TAA-21.
+Futura / Delivery Note verification remains out of scope everywhere.
+
+## Housekeeping — do this before any review or handover (as at 2026-08-07)
+
+Branch state is the first thing a reviewer looks at, and right now it does not
+read well:
+
+- On `taa-22-ps` at `30f2367`, **3 commits ahead of `origin/taa-22-ps`** —
+  unpushed. `main` is itself 1 ahead of `origin/main`.
+- **`taa-22-ps` is not merged to `main`.** All the TAA-22 + TAA-14 parallel-by-
+  default + report-retention + doc-accuracy work lives only on that branch.
+- `taa-14-speedup`, `taa-15-cli-port` and `taa-17-newstore` are merged into
+  `main` and are prunable leftovers.
+- Untracked in the working tree: `.claude/` and `_to_delete/`.
+
+Push, land `taa-22-ps`, prune the three stale branches.
 
 Everything below this block is historical rewrite context, not the live task list.
+
+**Report retention (JJ, 2026-08-06):** run reports are disposable — the verdict
+matters at the time of the run, and anything worth keeping gets written up here
+or on the ticket. `report.ts` now prunes `ts/reports/` back to the **10 most
+recent runs** after every run (`REPORT_RETENTION`, `pruneReports()`; pure
+`reportsToPrune()` is offline-tested). It only ever touches files matching
+`regression_<STORE>_<stamp>.{md,json}`, so the old `regression-report.md`
+dry-run sample and anything hand-saved there survive. Best-effort: a report it
+can't delete warns and is skipped, never failing an otherwise-passing run.
+
+**Doc accuracy pass (2026-08-06):** README, the four docs in this folder, the
+six Confluence pages under "QA Automation Tool", and the TAA tickets were
+reconciled against the real repo state ahead of a senior-dev review. Two
+long-standing doc defects fixed in code at the same time: `cli.ts`'s
+`printHelp()` was omitting `unique` and `partial_undeliverable` from its case
+list (a reviewer running `--help` would have seen 6 of 8 cases), and
+`staging-sku-setup.md` step 5 said `--list` instead of `--list-cases`.
+## Decisions JJ made 2026-08-06 (all applied)
+
+- **`--parallel` is now the default; `--sequential` is the opt-out.** TAA-14's
+  2026-08-04 decision, finally implemented. `defaultConfig()` sets
+  `parallel: true`; `cli.ts` gained `--sequential`; `--parallel` still accepted
+  so existing scripts/docs keep working; later flag wins if both are passed.
+  Rationale is on `RegressionConfig.parallel` — both stores have 14-SKU pools
+  with fully disjoint per-case assignment, so the wave scheduler has nothing to
+  race on, and parallel runs are byte-identical to sequential on both stores.
+  Sequential is now the *debugging* mode: readable one-case-at-a-time logs, or
+  ruling out concurrency when triaging. New `tests/cli.test.js` pins the
+  contract; suite green at **169/169**.
+  **Not yet done:** no live staging run since the flip. A bare
+  `node dist/index.js` now runs parallel where it used to run sequentially —
+  expected and proven equivalent, but re-confirm live on the next run.
+- **Scope-of-Work workstream 2 (allocation reflection, Shopify ↔ DynamoDB)
+  folded into TAA-21.** Nothing was built for it (no fulfilment-order querying,
+  no store→Shopify-location mapping in `ts/src/`, confirmed by grep) and it
+  verifies the same surface as workstream 3's fulfilment verification, needing
+  the same two missing pieces — separate tickets would mean building both twice.
+- **TAA-3 closed.** The design deliverable is done and published; implementation
+  lives on TAA-13/14/15/17 and the remaining phases on TAA-21/22, so holding it
+  open added nothing.
+- **TAA-15 closed: the operator surface is a CLI, not a GUI.** The remaining
+  order-builder scope (settings menu, presets/random orders, stress test,
+  associate switching for OTC, fire-and-verify) split out to **TAA-29** so
+  closing the parent didn't lose it. These extend the `order` subcommand — the
+  CLI-vs-GUI question is settled, don't reopen it.
+- **TAA-30 raised for the QA customer pool.** Removes the last Jared Davis
+  reference (the NewStore `ns_id` still points at his real profile — a live-use
+  blocker, left behind because it needs a real NewStore profile created rather
+  than just a string change), adds a usable way to create fake customers on both
+  Shopify and NewStore, and builds a pool of 10 selected at random per run. The
+  driver: `--parallel` is now the default and every concurrent case still shares
+  one QA customer per store. No interference was seen across the ~30 orders in
+  TAA-14's proving, but that's absence of evidence, not proof — and a customer
+  pool is the prerequisite for address-change propagation cases.
+  `NS_ASSOCIATES`/`ACTIVE_ASSOCIATE_ID` stay out of scope: real staff accounts,
+  and OTC orders need a real associate.
+
+Still open for JJ: **TAA-7** — is it build work (wire Kian's fulfilment call
+into the harness) or subsumed by TAA-21's verification-only scope? Its
+description states the ambiguity rather than guessing.
 
 ## ✅ TS REWRITE COMPLETE (2026-08-04) — zero Python remains
 
@@ -417,9 +614,14 @@ Current (TS, `ts/src/`) — see `qa-order-cli-tool-documentation.md`'s own file-
 - `--repeat N` (regression suite only) diffs JSON results between identical runs — variance is a flagged inconsistency (race-condition signal); don't break this contract when touching `runner.ts`/`report.ts`.
 - Prefer reuse over re-porting: the `order` command's build (TAA-15) added new capability to existing clients (e.g. `ShopifyClient.fetchPickupLocations`) rather than duplicating logic — follow that pattern for future ad-hoc-command capability.
 - `npm run build` (tsc) + `npm test` (`node --test tests/*.test.js`) must stay green — offline tests cover pure logic (arg parsing, payload shape, assertions); live staging runs are the separate, explicit confirm step for anything network-facing.
-- Update `qa-order-cli-tool-documentation.md`'s changelog when `order`-command-facing behaviour changes; update this file (`CLAUDE.md`) when harness-internal behaviour, decisions, or live-run findings change. Track build progress on the relevant TAA ticket (currently TAA-15's remaining scope).
+- Update `qa-order-cli-tool-documentation.md`'s changelog when `order`-command-facing behaviour changes; update this file (`CLAUDE.md`) when harness-internal behaviour, decisions, or live-run findings change. Track build progress on the relevant TAA ticket (currently TAA-22's last item, then TAA-15's remaining scope).
+- Run reports are disposable and auto-pruned to the 10 most recent (see "Report retention" at the top). Never cite a report filename as durable evidence without also recording the substance — the numbers, order ids and verdict — here or on the ticket.
+- `cli.ts`'s `--help` and `--list-cases` are user-facing documentation. When cases or flags change, update them in the same commit — `printHelp()` silently drifted two cases out of date once already.
 
 ## TypeScript rewrite handoff (Jul 17, 2026) — HISTORICAL, superseded by "TS state" above
+
+<details>
+<summary>The original scaffold-era handoff note, kept for archaeology. Every "next" in it has shipped, and several filenames it lists no longer exist — <code>src/verification/verification.ts</code> and <code>src/verification/assertions.ts</code> became <code>src/verify/{orders,refunds,shipments,inventory,newstore}.ts</code>, and the scaffold runner was replaced wholesale. Do not read this as current state.</summary>
 
 A TypeScript rewrite scaffold for the QA regression harness is now present under `ts/` and is aligned to the Python baseline in `regression-package-design.md` and `scope-of-work-reworked.md`.
 
@@ -459,3 +661,7 @@ The next implementation slice should continue porting the real regression baseli
 4. Repeat-run variance reporting and CLI flags matching the Python parity contract should be iterated after schema confirmation.
 
 This scaffold is a runnable starting point for the TAA rewrite work and should be treated as the initial handoff artifact for follow-on co-working/admin work.
+
+</details>
+
+*(The repo-root `ts-rewrite-handoff.txt` was a standalone copy of this same note. It's been reduced to a pointer at this file and is safe to delete.)*

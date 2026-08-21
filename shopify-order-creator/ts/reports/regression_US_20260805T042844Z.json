@@ -1,6 +1,6 @@
 {
   "store": "US",
-  "timestamp": "20260717T121817Z",
+  "timestamp": "20260805T042844Z",
   "repeat": 1,
   "passed": true,
   "repeatConsistent": true,
@@ -14,16 +14,16 @@
           "store": "US",
           "description": "Single item, stock at one location -> one shipment there",
           "passed": true,
-          "orderId": "gid://shopify/Order/7772188999953",
-          "orderName": "#9710",
+          "orderId": "gid://shopify/Order/7823091204369",
+          "orderName": "#9867",
           "stages": [
             {
               "name": "seed_inventory",
-              "elapsed": 5
+              "elapsed": 1.2
             },
             {
               "name": "create_order",
-              "elapsed": 7.3
+              "elapsed": 8.7
             },
             {
               "name": "shopify_readback",
@@ -31,11 +31,11 @@
             },
             {
               "name": "orders_table",
-              "elapsed": 10.6
+              "elapsed": 21.7
             },
             {
               "name": "allocation",
-              "elapsed": 10.1
+              "elapsed": 52
             },
             {
               "name": "no_refund",
@@ -43,7 +43,7 @@
             },
             {
               "name": "inventory",
-              "elapsed": 0
+              "elapsed": 0.1
             }
           ],
           "error": null
@@ -53,16 +53,16 @@
           "store": "US",
           "description": "3x same SKU -> one shipment, three ITEM# rows (Shopify merges duplicate line items; Dynamo does not)",
           "passed": true,
-          "orderId": "gid://shopify/Order/7772190081297",
-          "orderName": "#9711",
+          "orderId": "gid://shopify/Order/7823093203217",
+          "orderName": "#9868",
           "stages": [
             {
               "name": "seed_inventory",
-              "elapsed": 4.7
+              "elapsed": 1.4
             },
             {
               "name": "create_order",
-              "elapsed": 7.1
+              "elapsed": 5.2
             },
             {
               "name": "shopify_readback",
@@ -70,11 +70,11 @@
             },
             {
               "name": "orders_table",
-              "elapsed": 10.6
+              "elapsed": 11.7
             },
             {
               "name": "allocation",
-              "elapsed": 15.2
+              "elapsed": 36.9
             },
             {
               "name": "no_refund",
@@ -92,28 +92,28 @@
           "store": "US",
           "description": "3 different SKUs all stocked at one location -> one combined shipment",
           "passed": true,
-          "orderId": "gid://shopify/Order/7772191162641",
-          "orderName": "#9712",
+          "orderId": "gid://shopify/Order/7823094120721",
+          "orderName": "#9869",
           "stages": [
             {
               "name": "seed_inventory",
-              "elapsed": 9.9
+              "elapsed": 1.8
             },
             {
               "name": "create_order",
-              "elapsed": 7.3
+              "elapsed": 6.5
             },
             {
               "name": "shopify_readback",
-              "elapsed": 0.3
+              "elapsed": 0.7
             },
             {
               "name": "orders_table",
-              "elapsed": 10.6
+              "elapsed": 6.6
             },
             {
               "name": "allocation",
-              "elapsed": 15.2
+              "elapsed": 26.8
             },
             {
               "name": "no_refund",
@@ -121,7 +121,7 @@
             },
             {
               "name": "inventory",
-              "elapsed": 0.1
+              "elapsed": 57.6
             }
           ],
           "error": null
@@ -131,12 +131,12 @@
           "store": "US",
           "description": "Each SKU stocked at a different store only -> one shipment per store",
           "passed": true,
-          "orderId": "gid://shopify/Order/7772192276753",
-          "orderName": "#9713",
+          "orderId": "gid://shopify/Order/7823095398673",
+          "orderName": "#9870",
           "stages": [
             {
               "name": "seed_inventory",
-              "elapsed": 8.7
+              "elapsed": 1
             },
             {
               "name": "create_order",
@@ -144,15 +144,15 @@
             },
             {
               "name": "shopify_readback",
-              "elapsed": 0.3
+              "elapsed": 0.4
             },
             {
               "name": "orders_table",
-              "elapsed": 10.6
+              "elapsed": 6.6
             },
             {
               "name": "allocation",
-              "elapsed": 15.2
+              "elapsed": 21.8
             },
             {
               "name": "no_refund",
@@ -170,16 +170,16 @@
           "store": "US",
           "description": "Zero stock everywhere -> UNDELIVERABLE, Shopify refund, rows removed from both AWS tables",
           "passed": true,
-          "orderId": "gid://shopify/Order/7772193456401",
-          "orderName": "#9714",
+          "orderId": "gid://shopify/Order/7823095988497",
+          "orderName": "#9871",
           "stages": [
             {
               "name": "seed_inventory",
-              "elapsed": 4.8
+              "elapsed": 0.9
             },
             {
               "name": "create_order",
-              "elapsed": 7
+              "elapsed": 5.4
             },
             {
               "name": "shopify_readback",
@@ -187,23 +187,23 @@
             },
             {
               "name": "orders_table",
-              "elapsed": 5.7
+              "elapsed": 11.6
             },
             {
               "name": "allocation",
-              "elapsed": 10.2
+              "elapsed": 21.8
             },
             {
               "name": "refund",
-              "elapsed": 11.1
+              "elapsed": 14
             },
             {
               "name": "cleanup",
-              "elapsed": 20.3
+              "elapsed": 31.5
             },
             {
               "name": "inventory",
-              "elapsed": 0.1
+              "elapsed": 0
             }
           ],
           "error": null
@@ -213,16 +213,16 @@
           "store": "US",
           "description": "One SKU stocked, one zero everywhere -> mixed: allocated shipment + refunded undeliverable",
           "passed": true,
-          "orderId": "gid://shopify/Order/7772195193105",
-          "orderName": "#9715",
+          "orderId": "gid://shopify/Order/7823097004305",
+          "orderName": "#9872",
           "stages": [
             {
               "name": "seed_inventory",
-              "elapsed": 8.1
+              "elapsed": 0.9
             },
             {
               "name": "create_order",
-              "elapsed": 9.5
+              "elapsed": 6.6
             },
             {
               "name": "shopify_readback",
@@ -230,23 +230,61 @@
             },
             {
               "name": "orders_table",
-              "elapsed": 10.6
+              "elapsed": 11.6
             },
             {
               "name": "allocation",
-              "elapsed": 10.2
+              "elapsed": 21.7
             },
             {
               "name": "refund",
-              "elapsed": 5.7
+              "elapsed": 13.9
             },
             {
               "name": "cleanup",
-              "elapsed": 10.1
+              "elapsed": 21.4
             },
             {
               "name": "inventory",
               "elapsed": 0.1
+            }
+          ],
+          "error": null
+        },
+        {
+          "case": "ns_sfs",
+          "store": "US",
+          "description": "NewStore Ship From Store injection — order lands in NewStore with the requested SKU/qty",
+          "passed": true,
+          "orderId": "28df5f16-4bf1-50d8-9471-a104a2628ed8",
+          "orderName": "QASFS_1785904106419_8a742fc5f0",
+          "stages": [
+            {
+              "name": "inject",
+              "elapsed": 4.3
+            },
+            {
+              "name": "newstore_readback",
+              "elapsed": 4.5
+            }
+          ],
+          "error": null
+        },
+        {
+          "case": "ns_otc",
+          "store": "US",
+          "description": "NewStore Over the Counter injection — preconfirmed/fulfilled order, no shipping charge",
+          "passed": true,
+          "orderId": "b015c9a6-80e4-5ff9-8af3-0bc8f659315a",
+          "orderName": "QAOTC_1785904115263_2c37066fef",
+          "stages": [
+            {
+              "name": "inject",
+              "elapsed": 3.1
+            },
+            {
+              "name": "newstore_readback",
+              "elapsed": 6.1
             }
           ],
           "error": null

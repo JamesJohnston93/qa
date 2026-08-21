@@ -114,9 +114,18 @@ export interface RegressionConfig {
   help?: boolean;
   listCases?: boolean;
 
-  // TAA-14 Phase B: SKU-disjoint parallel case execution, off by default.
-  // Repeats always stay serial regardless of this flag (see cli.ts) — only
-  // the cases within one repeat can run concurrently.
+  // TAA-14 Phase B: SKU-disjoint parallel case execution.
+  //
+  // ON by default since 2026-08-06 (the decision recorded on TAA-14 on
+  // 2026-08-04, finally implemented). Both stores now have 14-SKU pools with
+  // fully disjoint per-case assignment, so the wave scheduler has nothing to
+  // race on, and parallel runs have been proven byte-identical to sequential
+  // ones on US and PS. Sequential is now the debugging mode rather than the
+  // safe default: reach for `--sequential` when you want a clean, readable,
+  // one-case-at-a-time log, or to rule out concurrency when triaging a failure.
+  //
+  // Repeats always stay serial regardless of this flag (see cli.ts) — only the
+  // cases within one repeat run concurrently.
   parallel: boolean;
   parallelConcurrency: number; // cap on simultaneous cases within a wave
 
@@ -138,7 +147,7 @@ export function defaultConfig(): RegressionConfig {
     verbose: true,
     help: false,
     listCases: false,
-    parallel: false,
+    parallel: true, // see RegressionConfig.parallel — default flipped 2026-08-06 (TAA-14)
     parallelConcurrency: 4, // keep in sync with scheduler.ts's DEFAULT_PARALLEL_CONCURRENCY (not imported here to avoid a config<->scheduler<->baselineCases import cycle)
     awsRegion: process.env.AWS_REGION ?? "ap-southeast-2",
     awsProfile: process.env.AWS_PROFILE ?? "staging",
