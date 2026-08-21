@@ -3,37 +3,78 @@
 TypeScript CLI + regression harness (`ts/`) for placing test orders on Universal Store / Perfect Stranger **staging** and verifying omni-channel alignment across Shopify, AWS (DynamoDB), and NewStore. Two entry points from the same build: `node dist/index.js order ...` places one ad-hoc test order on demand (TAA-15); `node dist/index.js` with no subcommand runs the automated regression suite (TAA-13/14/17).
 
 **Owner:** JJ (james.johnston@universalstore.com.au). Tool originally by Jared Davis (as a Python CLI — see "TS rewrite complete" below).
-**Tracking:** Jira project TAA (current: TAA-21 fulfilment — slice A **TAA-34** in flight, built but not live-confirmed; TAA-40 owns the outstanding PS live run; TAA-31/32/33 queued behind TAA-21). Docs: Confluence QD space → "QA Automation Tool" page tree — see `regression-package-design.md` and `scope-of-work-reworked.md` in this folder, and `qa-order-cli-tool-documentation.md` for the `order` command's user-facing docs.
+**Tracking:** Jira project TAA (current: TAA-21 fulfilment — slice A **TAA-34 done, live-confirmed 2026-08-21**; slice B **TAA-35** next; TAA-40 owns the outstanding PS live run; TAA-31/32/33 queued behind TAA-21). Docs: Confluence QD space → "QA Automation Tool" page tree — see `regression-package-design.md` and `scope-of-work-reworked.md` in this folder, and `qa-order-cli-tool-documentation.md` for the `order` command's user-facing docs.
 
-## ⚠ NEXT SESSION — FINISH TAA-34 (fulfilment slice A) LIVE
+## TAA-34 sign-off (2026-08-21) — fulfilment slice A live-confirmed, two contract deviations found
 
-**Step 0 — push first; nothing below is real until this happens.** Four commits
-on `taa-22-ps` are local-only, including the parallel-by-default flip:
-`d595eba`, `0082604`, `30f2367`, `fdaa31b`. Push, merge to `main`, then rebase
-the `taa-34-fulfil-client` worktree onto it — that branch was cut from
-`origin/main` and does not carry the flip.
+**Housekeeping done first:** `taa-22-ps` pushed and merged to `main` (merge
+commit `3dfa0b4`, no conflicts). `taa-34-fulfil-client` (was cut from stale
+`origin/main` and missing the parallel-by-default flip) rebased cleanly onto
+the updated `main` and pushed as a new branch — it had never been on the
+remote before. `cd ts && npm run build && npm test`: **183/183 green** (169
+baseline + 14 fulfilment/cli-fulfil tests).
 
-**Step 1 — TAA-34 live confirm.** Slice A is **built and committed** already
-(`829db11`, worktree `../qa-taa-34`): `clients/fulfilment.ts`, `cli-fulfil.ts`,
-wired into `index.ts`, plus `tests/fulfilment.test.js` and
-`tests/cli-fulfil.test.js`. What it has never had is the one thing the ticket
-actually asks for — a real call against staging:
+**Pre-live code review:** all six contract points the ticket calls out were
+already pinned in `tests/fulfilment.test.js` before any live call — bare
+`shipment_id`, `ITEM#`-prefix-retained `shipment_item_id`, Brisbane timestamp
+via `Intl.DateTimeFormat` (including a UTC-midnight-boundary case), the
+staging-host constructor guard, a 400 body surfacing in the thrown error, and
+unvalidated pass-through weights. No changes needed before going live.
 
-```
-node dist/index.js fulfil --shipment <bare-uuid> --item ITEM#<uuid>
-```
+**Live run (US, two independent orders/shipments):**
+- Order **#9922** → shipment `de6e19d8-86cf-443b-944a-1043599e94dd`, item
+  `ITEM#d0bf30e1-c83b-482b-8c4a-d35d1a6d8fa4` → **200**, DynamoDB row flipped
+  to `FULFILLED`, `trackingNumber` = `111JD885253001000931507`.
+- Order **#9923** → shipment `9d6d7045-cb77-4401-bebf-1376ba05e719`, item
+  `ITEM#0952ae76-77b2-4a31-961c-63c2bfe53ee5` → **200**, `trackingNumber` =
+  `111JD885253401000931505`.
+- Order **#9924** placed as a third spare, unused this session — left
+  allocated (not yet fulfilled) for whoever picks up TAA-35/36 next and needs
+  a ready shipment.
 
-200 + a tracking number closes it. Needs `FULFIL_BASE_URL` / `FULFIL_API_KEY`
-in env and a freshly allocated order to fulfil. **Fulfilment is irreversible** —
-a fulfilled staging shipment stays fulfilled, so place two or three spare orders
-before starting. Re-firing the same shipment is the cheap negative test: the 400
-body (`"can't fulfill shipment with status fulfilled"`) must surface in the
-thrown error, not a bare status code.
+**Finding 1 — the tracking number is not in the HTTP response body.** The 200
+response is `{code, message, data: {label_url, label_dimensions}}` — no
+`tracking_number`/`trackingNumber`/`tracking_id`/`consignment_number` field
+anywhere in it, confirmed on both live calls above. It only ever lands on the
+DynamoDB shipment row's `trackingNumber` attribute after the call succeeds.
+The ticket's CLI acceptance line ("prints the tracking number the service
+returns") assumed the response carries it; it doesn't. The already-built CLI
+(`cli-fulfil.ts`) anticipated this and degrades gracefully — it prints "not
+found under [...], inspect the response body" rather than failing — so no
+code change was needed, but this is the load-bearing fact for **TAA-37**:
+assert `trackingNumber` by reading the shipments table after fulfil, never by
+parsing the fulfil response.
 
-Then tick TAA-34, record the shipment id + tracking number here, and move to
-**TAA-35** (widen `ShipmentItem` with `shipmentItemId` / `shipmentId`).
+**Finding 2 — re-fulfilling an already-`FULFILLED` shipment does not 400.**
+The ticket documents a negative test: re-firing a fulfilled shipment should
+draw a 400 with `"can't fulfill shipment with status fulfilled"`. It didn't.
+The #9922 shipment above was fulfilled 3 times in a row inside ~90 seconds
+(`pendingAction` still `MANIFEST` throughout) — **all three calls returned
+200**, and each one generated a genuinely new Auspost label and tracking
+number, silently overwriting the previous `trackingNumber` on the row
+(`...507` → `...504` → a third, uncaptured value). The backend does not guard
+against reuse, at least not within this window. Two implications for later
+slices: (a) don't assume the fulfil endpoint is idempotent or self-protecting
+— if TAA-36/39 need "already fulfilled, skip" behavior, the **harness** has
+to check shipment status itself before calling fulfil, not rely on a 400; (b)
+every accidental re-fire burns a real staging Auspost label, so treat a
+shipment id as consumed after one successful call. Not investigated further
+whether a 400 ever appears later (e.g. post-manifest) — out of scope for this
+slice, and not worth burning more spare orders to chase.
 
-**Deferred, now owned by TAA-40:** `--store PS --parallel --repeat 3`. It is
+TAA-34 ticket updated with the same findings, checklist ticked, **status →
+Done**.
+
+## ⚠ NEXT SESSION — TAA-35 (fulfilment slice B)
+
+Build the shipment payload from a shipment's real DynamoDB rows instead of
+hand-typed ids — "any item count" per the slice table below. Read TAA-35's own
+ticket for the contract; don't re-read TAA-36..39, each is its own session.
+Carry Finding 1 and Finding 2 above forward: don't have TAA-35/36 assume the
+fulfil response contains a tracking number, and don't assume double-fulfil is
+backend-guarded.
+
+**Deferred, still owned by TAA-40:** `--store PS --parallel --repeat 3`. It is
 TAA-22's last unticked acceptance item *and* the only live confirmation of the
 parallel-by-default flip (`defaultConfig()` set `parallel: true` on 2026-08-06;
 no live run since, proven equivalent offline at 169/169 but never on staging).
@@ -95,10 +136,17 @@ Payload facts worth not re-deriving:
   precision, no milliseconds. Format explicitly via `Intl.DateTimeFormat` with
   `timeZone: "Australia/Brisbane"` — NOT host local time.
 - 200 = success; Auspost returns a tracking number the backend writes onto the
-  shipment row (assert it). 400 = failure with a message worth surfacing
-  ("can't fulfill shipment with status fulfilled", "shipment is on hold",
-  "contact dev support"). Carry the response body into the thrown error.
-- Any shipment that isn't already fulfilled is fulfillable.
+  shipment row (assert it — **not** the response body, which only carries
+  `label_url`/`label_dimensions`, confirmed live TAA-34, see sign-off above).
+  400 = failure with a message worth surfacing ("can't fulfill shipment with
+  status fulfilled", "shipment is on hold", "contact dev support"). Carry the
+  response body into the thrown error.
+- **Not confirmed live:** whether an already-fulfilled shipment is ever
+  rejected. TAA-34 re-fired the same fulfilled shipment 3x within ~90s and
+  got 200 every time, each generating a new real Auspost label/tracking
+  number — see Finding 2 above. Don't assume the backend guards against
+  double-fulfil; if a slice needs that guarantee, check shipment status in
+  Dynamo before calling fulfil.
 
 **Item settling — a case-design consideration, not a defect.** Allocation
 writes the `SHIPMENT#` row first, then updates `ITEM#` rows one at a time. The
@@ -122,8 +170,9 @@ JJ's ">5 min = probable bug" threshold is a triage signal, not a wait-it-out
 budget. Tune from live data.
 
 **Fulfilment is irreversible on staging** (same class as `zeroEverywhere`) and
-a 200 produces a real Auspost staging shipment. Repeat runs need fresh orders —
-have a couple of spare allocated orders ready before starting TAA-34.
+a 200 produces a real Auspost staging shipment — confirmed, it does not even
+guard against re-fulfilling the same shipment (Finding 2 above). Repeat runs
+need fresh orders — have a couple of spare allocated orders ready.
 
 ## Board split made 2026-08-07 (JJ's calls)
 
