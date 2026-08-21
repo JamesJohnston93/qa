@@ -10,6 +10,8 @@ The immediate priority is **omni-channel alignment**: proving that orders place,
 
 ## Where it stands today
 
+*(Status update, 2026-08-21 — supersedes the ticket mapping in the 2026-08-06 note below. **TAA-22 is Done**; its outstanding `--store PS --parallel --repeat 3` run is now owned by [TAA-40](https://universalstore.atlassian.net/browse/TAA-40). **TAA-21 no longer covers Workstreams 3 and 4 together** — on 2026-08-07 it became an umbrella Workstream for fulfilment (Workstream 3) only, sliced into six session-sized tickets [TAA-34](https://universalstore.atlassian.net/browse/TAA-34)–[TAA-39](https://universalstore.atlassian.net/browse/TAA-39); rejection & reallocation (Workstream 4) split out to [TAA-31](https://universalstore.atlassian.net/browse/TAA-31), click & collect to [TAA-32](https://universalstore.atlassian.net/browse/TAA-32), and the order-finalised transaction to [TAA-33](https://universalstore.atlassian.net/browse/TAA-33). Slice A (TAA-34) is **built and committed** on `taa-34-fulfil-client` — a fulfil client, a hand-drivable `fulfil` subcommand and offline tests — but has never been run against staging. Branch `taa-22-ps` is still unmerged to `main` and is now also 5 commits ahead of its own remote.)*
+
 *(Status update, 2026-08-06 — supplements the 2026-08-04 note below: Workstream 0 and Workstream 1 are both done; TAA-22 (PS OAuth + PS SKU pool) has since landed, leaving one open item — a clean `--store PS --parallel --repeat 3` — before it closes. TAA-21 (Workstreams 3 and 4) is next up. Branch `taa-22-ps` is not yet merged to `main`.)*
 
 *(Status update, 2026-08-04: the TypeScript rebuild — described as Workstream 1 below — is complete, and the Python CLI referenced in the rest of this section has since been retired in favour of the `order` subcommand under `ts/`, see `CLAUDE.md` and `qa-order-cli-tool-documentation.md`. The "where it stands today" paragraph immediately below is left as written for historical context on the state this scope was written against; treat `CLAUDE.md` as authoritative for current status.)*
@@ -64,6 +66,8 @@ Levers: **single shipment** — stock all SKUs at one store; **split** — each 
 
 ### 2. Allocation reflection: Shopify ↔ DynamoDB
 
+*(Status update, 2026-08-21: still not started. The folding target has since been sliced — within the TAA-34–39 set, the Shopify ↔ DynamoDB reflection work this workstream describes lands in **[TAA-38](https://universalstore.atlassian.net/browse/TAA-38)** (slice E, "allocation reflection"), which is where the store → Shopify-location mapping gets built. Note also that click & collect and the order-finalised transaction were carved out of the same surrounding scope into [TAA-32](https://universalstore.atlassian.net/browse/TAA-32) and [TAA-33](https://universalstore.atlassian.net/browse/TAA-33).)*
+
 *(Status update, 2026-08-06: **not started, and folded into [TAA-21](https://universalstore.atlassian.net/browse/TAA-21)** alongside Workstreams 3 and 4. Nothing here has been built — the baseline asserts Shopify order state and the DynamoDB allocation independently, and neither the fulfilment-order querying nor the store → Shopify-location mapping this workstream calls for exists in `ts/src/` (confirmed by grep). It was folded rather than left standing because it verifies the same surface as Workstream 3's fulfilment verification and needs the same two missing pieces — keeping them separate would mean building both twice. Per JJ, 2026-08-06.)*
 
 **Goal:** verify the Shopify order/fulfilment view matches the DynamoDB allocation — right SKUs and unit counts per fulfilment, fulfilment location maps to the allocated store, one fulfilment per shipment, no fulfilment for undeliverables.
@@ -74,6 +78,8 @@ Levers: **single shipment** — stock all SKUs at one store; **split** — each 
 
 ### 3. Fulfilment verification (Auspost)
 
+*(Status update, 2026-08-21: **in progress**, and no longer bundled with Workstream 4. TAA-21 is an umbrella sliced into [TAA-34](https://universalstore.atlassian.net/browse/TAA-34) (A, fulfil one shipment from hand-supplied ids) → [TAA-35](https://universalstore.atlassian.net/browse/TAA-35) (B, payload from real shipment rows) → [TAA-36](https://universalstore.atlassian.net/browse/TAA-36) (C, fulfil a whole order end to end) → [TAA-37](https://universalstore.atlassian.net/browse/TAA-37) (D, assert the fulfilled state) → [TAA-38](https://universalstore.atlassian.net/browse/TAA-38) (E, allocation reflection) → [TAA-39](https://universalstore.atlassian.net/browse/TAA-39) (F, regression cases + runner wiring). Slice A is built and committed, awaiting its live confirm. The **order-finalised** transaction named in the goal below is now its own ticket, [TAA-33](https://universalstore.atlassian.net/browse/TAA-33), rather than part of this workstream.)*
+
 *(Status update, 2026-08-06: **to do — TAA-21**, next up once TAA-22 closes. TAA-21 covers this workstream and Workstream 4 together.)*
 
 **Goal:** verify the fulfilment path end-to-end (the fulfilment call already exists — this is verification only): shipment UUID + fulfilled state written to DynamoDB and Shopify; fulfilled state flows to the orders table; **order-finalised** transaction written exactly when the last open item closes.
@@ -81,6 +87,8 @@ Levers: **single shipment** — stock all SKUs at one store; **split** — each 
 **Boundary:** Futura DN verification out of scope.
 
 ### 4. Rejection & reallocation
+
+*(Status update, 2026-08-21: **to do — [TAA-31](https://universalstore.atlassian.net/browse/TAA-31)**, split out of TAA-21 on 2026-08-07 so fulfilment could land on its own. Blocked behind TAA-21: rejection reuses the widened `ShipmentItem`, `groupItemsByShipment()`, the shipment-complete gate, the `TRANSACTION#` reader and the store → Shopify-location mapping, so building it first would mean building all of that twice. Four contract questions are still open on that ticket — the reject endpoint, payload and auth have not been provided, and whether rejection is per-shipment or per-item is undecided.)*
 
 *(Status update, 2026-08-06: **to do — TAA-21**, alongside Workstream 3.)*
 
@@ -122,6 +130,6 @@ Futura/DN verification; browser UI-driving/Playwright; ~~NewStore SFS/OTC order 
 
 *(Status update, 2026-08-06: the Python → TS transition half is met; the coverage half is not yet. Per-criterion below.)*
 
-- Deterministic regression baseline running headlessly in Python (Phase 0), then reproduced by the TypeScript harness covering creation, inventory, allocation reflection, fulfilment, rejection/reallocation, and cancellation/refund on staging, run from a refreshed CLI with shareable reports. **Partly met:** the baseline is headless in TS and covers creation, inventory, allocation and the undeliverable→refund path, with markdown + JSON reports per run (`regression_<STORE>_<ISO8601Z>.md`/`.json`). **Still open:** allocation reflection (Workstream 2), fulfilment and rejection/reallocation (TAA-21), and the refreshed operator CLI (TAA-15's remaining UX scope — the `order` subcommand covers the daily-use path only).
+- Deterministic regression baseline running headlessly in Python (Phase 0), then reproduced by the TypeScript harness covering creation, inventory, allocation reflection, fulfilment, rejection/reallocation, and cancellation/refund on staging, run from a refreshed CLI with shareable reports. **Partly met:** the baseline is headless in TS and covers creation, inventory, allocation and the undeliverable→refund path, with markdown + JSON reports per run (`regression_<STORE>_<ISO8601Z>.md`/`.json`). **Still open:** allocation reflection (Workstream 2, now [TAA-38](https://universalstore.atlassian.net/browse/TAA-38)), fulfilment ([TAA-21](https://universalstore.atlassian.net/browse/TAA-21), sliced TAA-34–39, slice A built), rejection/reallocation ([TAA-31](https://universalstore.atlassian.net/browse/TAA-31), blocked behind it), and the refreshed operator CLI ([TAA-29](https://universalstore.atlassian.net/browse/TAA-29) — the `order` subcommand covers the daily-use path only). *(Ticket mapping corrected 2026-08-21; TAA-15 closed 2026-08-06 with its remaining UX scope moved to TAA-29.)*
 - Allocation outcomes deterministically controllable; repeat-run variance tracked as a first-class signal. **Met** — inventory levers per case, 10 disjoint SKU slots per store, `--repeat N` stable-signature diffing with a non-zero exit on variance.
 - AWS pipeline monitoring delivered or documented as the next increment. **Documented, not delivered** — Workstream 6 / TAA-2.

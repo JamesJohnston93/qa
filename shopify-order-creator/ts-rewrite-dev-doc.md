@@ -1,6 +1,8 @@
 # TypeScript Rewrite — Dev Doc
 
-**Status:** REWRITE COMPLETE (2026-08-04) — zero Python remains. Regression baseline green on US + PS at `--repeat 3` (TAA-13); run-time optimised to ~4 min via parallel execution (TAA-14); NewStore injection, read-back, cases 7-8, and receipts all ported and live-confirmed on US (TAA-17); the interactive Python CLI replaced by the `order` subcommand (TAA-15). The sections below are the rewrite history — treat `CLAUDE.md` as authoritative for current status. TAA-22 (PS OAuth unblock) landed 2026-08-04: PS's static token stopped working (Shopify retired that auth model Jan 1 2026), replaced with a client-credentials OAuth provider, PS SKU pool grown to 14 and made fully disjoint like US, full 8-case set live-confirmed PASS both sequential (4:13) and `--parallel` (1:35, byte-identical signature) — see CLAUDE.md for the one open item (`--repeat 3` not yet clean, see below). Remaining follow-ups: fulfilment + rejection cases (TAA-21).
+**Status:** REWRITE COMPLETE (2026-08-04) — zero Python remains. Regression baseline green on US + PS at `--repeat 3` (TAA-13); run-time optimised to ~4 min via parallel execution (TAA-14); NewStore injection, read-back, cases 7-8, and receipts all ported and live-confirmed on US (TAA-17), and on PS from 2026-08-04 once TAA-22's OAuth migration unblocked the product reads; the interactive Python CLI replaced by the `order` subcommand (TAA-15). The sections below are the rewrite history — treat `CLAUDE.md` as authoritative for current status. TAA-22 (PS OAuth unblock) landed 2026-08-04: PS's static token stopped working (Shopify retired that auth model Jan 1 2026), replaced with a client-credentials OAuth provider, PS SKU pool grown to 14 and made fully disjoint like US, full 8-case set live-confirmed PASS both sequential (4:13) and `--parallel` (1:35, byte-identical signature) — see CLAUDE.md for the one open item (`--repeat 3` not yet clean, see below). Remaining follow-ups: fulfilment + rejection cases (TAA-21).
+
+*(Status update, 2026-08-21: TAA-22 is **Done**; its unrun `--store PS --parallel --repeat 3` is now [TAA-40](https://universalstore.atlassian.net/browse/TAA-40), which also covers the only outstanding live confirmation of the parallel-by-default flip. The follow-ups have been separated: **TAA-21 is fulfilment only**, an umbrella sliced into [TAA-34](https://universalstore.atlassian.net/browse/TAA-34)–[TAA-39](https://universalstore.atlassian.net/browse/TAA-39), with slice A built and committed on `taa-34-fulfil-client` but not yet run live; **rejection & reallocation is [TAA-31](https://universalstore.atlassian.net/browse/TAA-31)**, blocked behind it. Click & collect and the order-finalised transaction split out to [TAA-32](https://universalstore.atlassian.net/browse/TAA-32) and [TAA-33](https://universalstore.atlassian.net/browse/TAA-33).)*
 **Owner:** JJ
 **Relates to:** TAA-13/14/15/17 (the rewrite), Scope of Work phase 1
 
@@ -94,6 +96,17 @@ Full task state: [TAA-13](https://universalstore.atlassian.net/browse/TAA-13).
 
 TS rewrite → TAA-3 regression baseline runs in TS → choose next phase from the Scope of Work. The Python code (CLI + `regression/` v0.1) is the **executable reference spec** — it is ported, not run first. Retain it until the TS suite passes the baseline live, then retire it.
 
+*(Status update, 2026-08-21 — read before using anything below this line. Everything from here to the end of the document is the **pre-scaffold plan as written in July**, kept for the reasoning it records. The build diverged from it in ways that matter, and several passages read as current-tense instructions:*
+
+- *`verification/` was never built — the assertion modules are `src/verify/{index,orders,refunds,shipments,inventory,newstore}.ts`. There is no `verification/assertions.ts`.*
+- *`reporting/` is a single file, `src/report.ts`.*
+- *The layout is `shopify-order-creator/ts/`, not a `qa/harness/` tree, and there is no Python reference package left to retire — `regression/` was `git rm`'d 2026-07-31 and the last seven Python files 2026-08-04. Any step instructing you to run `python -m regression.…` or read `regression/cases.py` cannot be followed.*
+- *`PS_ACCESS_TOKEN` is retired. PS authenticates by OAuth client-credentials (`PS_CLIENT_ID` / `PS_CLIENT_SECRET`); the fulfil client adds `FULFIL_BASE_URL` / `FULFIL_API_KEY`.*
+- *SKU pools are **14 per store** with 10 fully disjoint case slots, and cases run **in parallel by default** since 2026-08-06 (`--sequential` is the opt-out).*
+- *Test count is 20 files / 169 cases, not 38.*
+
+*Treat `CLAUDE.md` as authoritative and this section as history.)*
+
 ## Pre-flight (language-independent — do during scaffold, not after)
 
 These block the first live run in *any* language:
@@ -160,7 +173,7 @@ qa/
 ## Known constraints to carry over
 
 - Shopify merges duplicate line items; DynamoDB/NewStore are one-row-per-unit — compare SKU→quantity maps, never line counts.
-- Variant pools are small (5 US / 4 PS SKUs) — full per-case SKU isolation impossible until pools grow; run cases sequentially to terminal state.
+- ~~Variant pools are small (5 US / 4 PS SKUs) — full per-case SKU isolation impossible until pools grow; run cases sequentially to terminal state.~~ *(Resolved: 14 SKUs per store with 10 disjoint slots, and parallel is the default as of 2026-08-06.)*
 - Poll windows are guesses until tuned from recorded stage timings; timing drift is itself a signal.
 
 ## Build order (maps to the Jira checklist)
@@ -168,7 +181,7 @@ qa/
 1. Scaffold + toolchain confirmed against stack conventions.
 2. `clients/`: shopify, dynamo, newstore (offline-testable, no env needed to import).
 3. `flows/`: seeding + order creation returning full identifiers.
-4. `readers/` + `verification/` + polling (unit-test assertion logic offline — the Python logic checks in this repo's history show what to cover).
+4. `readers/` + ~~`verification/`~~ **`verify/`** + polling (unit-test assertion logic offline — the Python logic checks in this repo's history show what to cover).
 5. Cases 1–6 + runner + reporting + `--repeat`.
 6. Schema confirmation baked in; first live run; tune PollWindows.
 7. ~~Live baseline green ×3 repeats both stores → sign off parity → retire Python.~~ — done 2026-07-22.

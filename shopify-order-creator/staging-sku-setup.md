@@ -1,6 +1,6 @@
 # Staging SKU Setup — the standing how-to for growing the SKU pool
 
-*(Originally written as the prerequisite for TAA-14 Phase B, parallel cases — that's done on both stores. Kept as the how-to for adding SKUs to the pool, still relevant for TAA-21's fulfilment/rejection cases.)*
+*(Originally written as the prerequisite for TAA-14 Phase B, parallel cases — that's done on both stores. Kept as the how-to for adding SKUs to the pool, still relevant for the fulfilment cases (TAA-21, sliced [TAA-34](https://universalstore.atlassian.net/browse/TAA-34)–[TAA-39](https://universalstore.atlassian.net/browse/TAA-39)) and the rejection cases ([TAA-31](https://universalstore.atlassian.net/browse/TAA-31)), per the 2026-08-07 split.)*
 
 Each store needs enough **dedicated QA test SKUs** that every case can be assigned a fully disjoint set, so cases can run concurrently without touching each other's stock. This is a Shopify-staging-admin task (JJ) — the IDE can't create products.
 
@@ -25,7 +25,7 @@ Full-parallel one wave of the 6 baseline cases needs disjoint SKUs totalling **1
 | undeliverable | 1 |
 | partial_undeliverable | 2 |
 
-Target **≥12 per store** — the 10 above plus ~2 headroom for the fulfilment/rejection cases coming in TAA-21. ~~You currently have 5 US / 4 PS, so add roughly **7 US and 8 PS**.~~ *(Status update, 2026-08-06: done — `variants.ts` now holds **14 SKUs per store** (US grew 5→14 in TAA-14 Phase B, PS 4→14 in TAA-22 step 2), wired to the 10 disjoint slots with 4 spare. Behind that, the resolved lists `sku-lists/{us,ps}-skus.json` hold **191 US / 180 PS** SKUs — plenty of headroom to draw from for TAA-21, so growing the pool now usually means promoting SKUs from those lists into `variants.ts`, not creating products.)* Do both stores (US = Universal Store staging, PS = Perfect Stranger staging).
+Target **≥12 per store** — the 10 above plus ~2 headroom for the fulfilment cases (TAA-39) and rejection cases (TAA-31). ~~You currently have 5 US / 4 PS, so add roughly **7 US and 8 PS**.~~ *(Status update, 2026-08-06: done — `variants.ts` now holds **14 SKUs per store** (US grew 5→14 in TAA-14 Phase B, PS 4→14 in TAA-22 step 2), wired to the 10 disjoint slots with 4 spare. Behind that, the resolved lists `sku-lists/{us,ps}-skus.json` hold **191 US / 180 PS** SKUs — plenty of headroom to draw from for the fulfilment and rejection cases, so growing the pool now usually means promoting SKUs from those lists into `variants.ts`, not creating products.)* Do both stores (US = Universal Store staging, PS = Perfect Stranger staging).
 
 ## Requirements per test SKU
 
@@ -51,7 +51,7 @@ Target **≥12 per store** — the 10 above plus ~2 headroom for the fulfilment/
 
 With ≥12 disjoint SKUs per store, the IDE can build the Phase B parallel scheduler: derive waves from each case's declared SKUs, run disjoint cases concurrently, keep repeats serial, allow US+PS concurrently. Target: full `--repeat 3` in ≤7 min (from ~20), identical stable signatures vs sequential.
 
-*(Status update, 2026-08-06: built and the target beaten — `scheduler.ts`'s `buildWaves()`/`runBounded()` behind `--parallel` (default `--concurrency 4`). `--store US --parallel --repeat 3` came in at **4:04.10 (244.10s)** against the ~20 min (1200s) pre-TAA-14 baseline — ~4.9x, well inside the ≤7 min target — with sequential vs `--parallel` stable signatures byte-identical and no Shopify 429s at concurrency 4. PS passes single-pass both sequentially (4:13.41) and `--parallel` (1:35.94) with byte-identical signatures; a clean PS `--repeat 3` is the one item still outstanding. Running US and PS concurrently is still to do.)*
+*(Status update, 2026-08-06: built and the target beaten — `scheduler.ts`'s `buildWaves()`/`runBounded()` behind `--parallel` (default `--concurrency 4`). *(Superseded 2026-08-06, later the same day: parallel became the **default** and `--sequential` the opt-out.)* `--store US --parallel --repeat 3` came in at **4:04.10 (244.10s)** against the ~20 min (1200s) pre-TAA-14 baseline — ~4.9x, well inside the ≤7 min target — with sequential vs `--parallel` stable signatures byte-identical and no Shopify 429s at concurrency 4. PS passes single-pass both sequentially (4:13.41) and `--parallel` (1:35.94) with byte-identical signatures; a clean PS `--repeat 3` is the one item still outstanding. Running US and PS concurrently is still to do.)* *(Status update, 2026-08-21: that PS run is now [TAA-40](https://universalstore.atlassian.net/browse/TAA-40) — TAA-22 closed without it.)*
 
 ## Note (from TAA-14 guardrail)
 
