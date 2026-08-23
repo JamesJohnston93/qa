@@ -91,6 +91,17 @@ export interface PollWindows {
    */
   newstoreReadback: number;
   newstoreInterval: number;
+  /**
+   * fulfil call -> shipment settled (staging-shipments ITEM#/SHIPMENT# rows
+   * FULFILLED + trackingNumber, propagated to staging-orders-v2) (TAA-37).
+   * Measured live (TAA-41, 2026-08-23, n=2): 6.5-9.0s settle time — this
+   * window is now a ~17-23x margin, not the ~2.5x it was proposed as against
+   * the original ~30s estimate. Deliberately kept at 150s rather than
+   * shrunk: n=2 is too thin to resize on, the margin costs nothing, and
+   * >5min is meant as a triage signal (probable bug), not a wait-it-out
+   * budget — so 300s was rejected on the same reasoning.
+   */
+  fulfilment: number;
 }
 
 export const DEFAULT_POLL_WINDOWS: PollWindows = {
@@ -103,6 +114,7 @@ export const DEFAULT_POLL_WINDOWS: PollWindows = {
   inventory: 60,
   newstoreReadback: 30,
   newstoreInterval: 2,
+  fulfilment: 150,
 };
 
 export interface RegressionConfig {

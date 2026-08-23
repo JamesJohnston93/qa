@@ -51,6 +51,7 @@ exports.DEFAULT_POLL_WINDOWS = {
     inventory: 60,
     newstoreReadback: 30,
     newstoreInterval: 2,
+    fulfilment: 150,
 };
 function defaultConfig() {
     return {
