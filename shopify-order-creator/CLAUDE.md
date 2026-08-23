@@ -3,7 +3,7 @@
 TypeScript CLI + regression harness (`ts/`) for placing test orders on Universal Store / Perfect Stranger **staging** and verifying omni-channel alignment across Shopify, AWS (DynamoDB), and NewStore. Two entry points from the same build: `node dist/index.js order ...` places one ad-hoc test order on demand (TAA-15); `node dist/index.js` with no subcommand runs the automated regression suite (TAA-13/14/17).
 
 **Owner:** JJ (james.johnston@universalstore.com.au). Tool originally by Jared Davis (as a Python CLI — see "TS rewrite complete" below).
-**Tracking:** Jira project TAA (current: **TAA-21 fulfilment workstream — all six slices (TAA-34..39) done**, live-confirmed on both stores (2026-08-23); **TAA-42** filed for a real backend defect found by the `--repeat 3` check (Shopify fulfilment sync sometimes never fires, ~27% observed) — deliberately deferred, full order regression coverage is the priority before chasing it; TAA-40 owns the outstanding PS `--repeat 3` live run for the *baseline* set; TAA-31/32/33 queued next). Docs: Confluence QD space → "QA Automation Tool" page tree — see `regression-package-design.md` and `scope-of-work-reworked.md` in this folder, and `qa-order-cli-tool-documentation.md` for the `order` command's user-facing docs.
+**Tracking:** Jira project TAA (current: **TAA-21 fulfilment workstream — all six slices (TAA-34..39) done**, live-confirmed on both stores (2026-08-23); **TAA-31 (rejection & reallocation) — slices A-D done** on branch `taa-31-reject-probe` (not merged), **slice E (reject → undeliverable) next up** — see "TAA-31" section below; **TAA-42** filed for a real backend defect found by the `--repeat 3` check (Shopify fulfilment sync sometimes never fires, ~27% observed) — deliberately deferred, full order regression coverage is the priority before chasing it; TAA-40 owns the outstanding PS `--repeat 3` live run for the *baseline* set; TAA-32/33 queued behind TAA-31). Docs: Confluence QD space → "QA Automation Tool" page tree — see `regression-package-design.md` and `scope-of-work-reworked.md` in this folder, and `qa-order-cli-tool-documentation.md` for the `order` command's user-facing docs.
 
 ## TAA-34 sign-off (2026-08-21) — fulfilment slice A live-confirmed, two contract deviations found
 
@@ -262,15 +262,67 @@ backend findings, not harness defects.
 `PS_ACCESS_TOKEN` and lack `PS_CLIENT_ID`/`PS_CLIENT_SECRET`. The failure
 message doesn't point back at the stale token.
 
-## ⚠ NEXT SESSION — TAA-31 (rejection & reallocation)
+## TAA-31 (rejection & reallocation) — slices A-D done (2026-08-23/24), E next
 
-With TAA-21 fully sliced and built, **TAA-31 is next up** (blocked
-previously on JJ supplying the reject call — check the ticket for whether
-that's landed). It gets the last free pool slot (13) on both stores'
-14-SKU pools. TAA-32 (click & collect) and TAA-33 (order-finalised — reuses
-`fulfil_split`'s shape, per TAA-39's sign-off, rather than needing its own
-slot) queue behind it. TAA-42 (Shopify fulfilment-sync gap) stays open and
-deferred — don't pick it up without JJ asking for it first.
+Branch `taa-31-reject-probe` (not merged to `main`). Four slices built and
+live-confirmed so far; full detail in `ts/signoffs/TAA-31-slice-a.md`
+through `-slice-d.md` — summary only below, read the sign-offs before
+re-deriving any of this.
+
+| Slice | Done when | Status |
+| --- | --- | --- |
+| A | Prove the reject contract by hand — no client, no wiring | ✅ live-confirmed |
+| B | Real `RejectClient`/`buildRejectPayload` (`clients/reject.ts`) | ✅ live-confirmed |
+| C | Reallocation-resolved poll predicate (`flows/rejectFlow.ts`) | ✅ live-confirmed |
+| D | `rejectShipment()` whole-shipment-reject flow | ✅ live-confirmed x2 |
+| E | reject → undeliverable case | ⬜ next up |
+
+**Headline correction to the original brief — reject is NOT the same
+endpoint as fulfil.** It's a genuine sibling path, `POST /staging/reject`
+(same host, same `X-API-KEY`) — `POST /staging/fulfil` with a reject-shaped
+body crashes 502 (that handler never inspects `rejected_items`, it
+unconditionally expects `package_composition`). `RejectClient` (own file,
+own client) already reflects this — do not fold reject into
+`FulfilmentClient`.
+
+**Decision from JJ (2026-08-23): reject is NEVER valid on an already-
+`FULFILLED` shipment**, and won't be tested against one or wired into a case
+that way. `rejectShipment()` enforces this itself (reuses `fulfilFlow.ts`'s
+`isAlreadyFulfilled`) — the endpoint provides no guard of its own, same
+class of gap as TAA-41's fulfil finding.
+
+**Contract confirmed by observation (slice A, 4 live trials + slice D's 2
+more):** one item in `rejected_items` triggers rejection of the WHOLE
+shipment — every item goes back to the allocator, but only the *listed*
+item's original store gets appended to its `rejectedStores`. Items can
+scatter to different new stores/shipments, or coalesce into one if they land
+at the same store. Original shipment row flips to `status: REMOVED`. Success
+body is `{code,message,data:{message}}` — a plain string, NOT
+`label_url`/`label_dimensions` like fulfil.
+
+**Live-environment gotcha for slice E (and any future SKU-repeat testing):**
+the pool-13 SKU's (`33775371` US / `33950419` PS) ambient real per-store
+stock is thin and gets consumed by attrition — allocation decrements real
+stock wherever it lands, reject does not restore it. Six live cycles in one
+session were enough to exhaust it into `UNDELIVERABLE` by accident. A
+reallocate-path case **must** seed its own controlled backup store
+(`STORE_99`/`ATP#99` worked reliably) fresh, immediately before rejecting —
+and must zero it back down afterward, or the leftover stock leaks into the
+next order's *initial* allocation (confirmed live, slice D). Slice E's
+design (seed a single designated store, audited via the read-only
+`getAllLocationsForSku`, per slice A's proposal) needs the same discipline.
+
+It gets the last free pool slot (13) on both stores' 14-SKU pools. TAA-32
+(click & collect) and TAA-33 (order-finalised — reuses `fulfil_split`'s
+shape, per TAA-39's sign-off, rather than needing its own slot) queue behind
+it. TAA-42 (Shopify fulfilment-sync gap) stays open and deferred — don't
+pick it up without JJ asking for it first.
+
+**One-shot research tools from slices A-D, not wired anywhere, safe to
+reuse or delete once slice E lands:** `probe-reject.ts` (dump/reject-and-
+observe against a real order), `probe-stock-check.ts` (read-only
+per-location stock dump for a SKU), `probe-seed-store99.ts` (top up/zero
+`STORE_99` for a SKU — remember to zero it back after use).
 
 Full contract and design detail for the fulfilment endpoint: dev doc
 https://universalstore.atlassian.net/wiki/spaces/QD/pages/1866727460
