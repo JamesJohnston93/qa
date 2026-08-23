@@ -128,42 +128,51 @@ scheduler, not just sequentially. Fulfilment-relevant detail:
   tracking `111JD885846601000931503`). `allocation_reflection` settled in
   2.7s.
 
-**Not done, left for a follow-up session:** the `--repeat 3` zero-variance
-check. JJ chose to stop live confirmation after the single-pass PASS on both
-stores rather than spend the additional real Auspost volume a `--repeat 3`
-check requires. **This checklist item is explicitly unticked below — do not
-report TAA-39 as fully live-confirmed without it.**
+**`--repeat 3` (US, `fulfil_single,fulfil_split`, default/parallel) — run
+2026-08-23, result: FAIL, and correctly so.** `node dist/index.js --store US
+--cases fulfil_single,fulfil_split --repeat 3`. `fulfil_single` passed clean
+all 3 repeats (#9942, #9943, #9945). `fulfil_split` passed repeat 1 (#9941,
+both shipments synced to Shopify) but **failed repeats 2 and 3** (#9944,
+#9946) on `allocation.fulfilment_alignment` — see the TAA-42 finding below.
+`report.ts`'s `diffRepeats` correctly flagged `repeatConsistent: false` with
+`fulfil_split`'s per-repeat signatures in `variance` — this is the
+`--repeat` contract working exactly as designed, catching real backend
+nondeterminism, not a harness regression. **This checklist item is not
+"zero variance" and is not going to become so by re-running it** — the
+variance is a real backend defect (TAA-42), not a flake in this harness.
 
-## Finding — a one-off Shopify fulfilment-sync gap on order #9938 (n=1, not reproduced)
+## Finding — filed as TAA-42: Shopify fulfilment sync sometimes never fires (~27% observed)
 
 `fulfil_single`'s first live attempt (order #9938) fulfilled cleanly on the
 AWS side — `fulfilment_verify` passed at 11.4s, shipment `9c13ff5c-...`
 showed `status: FULFILLED` with a real tracking number — but
 `allocation_reflection` ran the full 150s window and still saw **zero**
-Shopify fulfilments on the order (`assertFulfilmentLocations`/
-`matchFulfilmentsToShipments` threw `allocation.fulfilment_alignment`:
-expected `{"33837352":1}`, actual `[]`). Independently re-queried Shopify
-directly (bypassing the harness entirely) twice more after the run, several
-minutes apart — both times still `fulfilments: []`. This was not a harness
-bug: the same code path fulfilled `#9939` (the split order, run immediately
-before it in the same process) and its Shopify fulfilments landed within
-seconds of the Dynamo-side settle.
+Shopify fulfilments on the order. Independently re-queried Shopify directly
+(bypassing the harness entirely) twice more after the run, several minutes
+apart — both times still `fulfilments: []`. Initially treated as a one-off
+(an immediate retry with a fresh order, #9940, passed clean in 0.5s) and
+logged as n=1.
 
-Ruled out as an artifact of item/shipment count: `fulfil_split`'s own two
-shipments are each single-item, single-package, and both synced fine — so
-it's not "single-item payloads never sync." Ruled out as a per-store issue:
-both the failing shipment and one of the successful ones were allocated to
-store 100 (WEB_DC). An immediate retry with a fresh order (#9940, same SKU
-slot) reproduced nothing — clean PASS, `allocation_reflection` settled in
-0.5s.
+**The `--repeat 3` run upgraded this from "maybe a flake" to a real,
+recurring defect.** 2 of 3 repeats of `fulfil_split` hit the identical
+pattern (#9944, #9946) — DynamoDB fully correct (both shipments
+`FULFILLED`, real tracking numbers) but Shopify showing zero fulfilments
+for the *entire order*, both shipments at once, confirmed still empty on a
+direct re-check minutes after each run. Across every live fulfilment
+attempt today (11 total, both stores): **3 failed this way (~27%)**. Ruled
+out as shipment-count-specific (both single- and multi-shipment orders
+failed at least once) and as store/location-specific (failures and passes
+both included `ATP#100` and `ATP#99` shipments) — when it fails, the whole
+order's Shopify sync appears to silently never fire, not a slow one.
 
-**Conclusion: order-specific Shopify fulfilment-sync flakiness on staging,
-n=1, not reproduced on retry.** Logged here for JJ's own triage per the
-project's standing convention for this class of finding (real backend
-oddity, not a harness defect) — not filed as a separate ticket. Worth
-knowing about if a future live run of `fulfil_single`/`fulfil_split` times
-out on `allocation_reflection`: re-check Shopify directly before assuming a
-harness regression, and don't be surprised if a bare retry clears it.
+**Filed as [TAA-42](https://universalstore.atlassian.net/browse/TAA-42)**
+(Investigation) per JJ, 2026-08-23 — deferred for later triage; full order
+regression coverage takes priority first. Departs from this project's
+earlier convention of only logging findings in docs without a ticket
+(established for the TAA-34/38-era one-off findings) — this rate and
+pattern was judged ticket-worthy rather than just triage-notes. Full
+evidence (order/shipment ids, before/after state) is in the ticket and
+duplicated in the `--repeat 3` section above; not re-duplicated here.
 
 ## Checklist
 
@@ -175,8 +184,11 @@ harness regression, and don't be surprised if a bare retry clears it.
 - [x] offline tests including a `cli.test.js` addition pinning the new case list
 - [x] `npm run build` + `npm test` green (267/267)
 - [x] LIVE: full default set passes on BOTH stores (US: minimal fulfilment-case check + retry; PS: full 10-case set, parallel, first try)
-- [ ] **LIVE: `--repeat 3` zero-variance check — NOT done, explicitly deferred.** `report.ts`'s `stableSignature`/`diffRepeats` contract was not touched by this slice (verified by reading it — it keys on pass/fail + failing check only, blind to stage names/timings), and `--repeat` already gets fresh orders/shipments for free (every case, fulfilment or not, calls `placeOrder()` anew inside `runCase()`, and `run()` is invoked once per repeat) — but this has not been proven live for the fulfilment path specifically. Whoever picks this up next: `node dist/index.js --store US --cases fulfil_single,fulfil_split --repeat 3` is the minimal live check; confirm each repeat's shipment ids are distinct (never re-fires an already-fulfilled shipment) and the three stable signatures are identical.
+- [x] LIVE: `--repeat 3` run and analyzed (US, `fulfil_single,fulfil_split`) — **not zero-variance**, but the variance is a confirmed real backend defect (TAA-42), not a harness bug. `--repeat` correctly drove 6 fresh orders/shipments (never re-fired an already-fulfilled one), and `report.ts`'s `stableSignature`/`diffRepeats` correctly flagged the inconsistency it exists to catch.
 
-TAA-39 ticket left for JJ to review before moving to Done, given the
-deferred checklist item above. Once `--repeat 3` is confirmed, TAA-21 is
-complete and TAA-31 (rejection) is unblocked.
+**The harness side of TAA-39 is done and correct.** The one open item is
+backend, not harness: TAA-42 (Shopify fulfilment sync gap, ~27% observed)
+is filed and deliberately deferred per JJ — full order regression coverage
+is the priority now, backend bugs the harness surfaces get triaged after.
+TAA-39 ticket left for JJ to review; TAA-21 completion / TAA-31 unblocking
+is a call for JJ given TAA-42 is still open, not a harness gate.
