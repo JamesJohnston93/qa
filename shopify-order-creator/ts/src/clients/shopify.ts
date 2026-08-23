@@ -278,6 +278,28 @@ export class ShopifyClient {
     return match.handle;
   }
 
+  /**
+   * Resolves a Shopify order display name (e.g. "#9928") to the numeric tail
+   * of its GID (the correlation key DynamoReader's origin_index GSI needs) —
+   * TAA-36's order-driven fulfil CLI takes either, since a name is what an
+   * operator actually has on hand. Null if no order matches; does not throw
+   * on a miss, since "order not found" is a normal input-validation outcome
+   * here, not a client failure.
+   */
+  async findOrderIdTailByName(name: string): Promise<string | null> {
+    const result = await this.execute<{ orders: { edges: Array<{ node: { id: string } }> } }>(ORDERS_BY_NAME, {
+      query: `name:${name}`,
+    });
+    if (result.errors && result.errors.length > 0) {
+      throw new Error(`order lookup by name failed for "${name}": ${JSON.stringify(result.errors)}`);
+    }
+    const edges = result.data?.orders.edges ?? [];
+    if (edges.length === 0) {
+      return null;
+    }
+    return edges[0].node.id.split("/").pop() ?? null;
+  }
+
   /** Fulfilment locations available for click-and-collect delivery. */
   async fetchPickupLocations(): Promise<Array<{ id: string; name: string }>> {
     const result = await this.execute<{ locations: { edges: Array<{ node: { id: string; name: string } }> } }>(
@@ -442,6 +464,16 @@ const DRAFT_ORDER_COMPLETE = `
         order { id name }
       }
       userErrors { field message }
+    }
+  }
+`;
+
+const ORDERS_BY_NAME = `
+  query getOrderByName($query: String!) {
+    orders(first: 1, query: $query) {
+      edges {
+        node { id }
+      }
     }
   }
 `;

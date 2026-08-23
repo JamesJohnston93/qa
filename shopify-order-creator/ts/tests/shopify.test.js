@@ -311,3 +311,38 @@ test('US execute is unaffected by PS OAuth and still uses the static US_ACCESS_T
 
   assert.equal(capturedHeaders['X-Shopify-Access-Token'], 'test-token');
 });
+
+test('findOrderIdTailByName returns the numeric tail of the matched order\'s gid', async (t) => {
+  withToken(t);
+  let capturedVariables;
+  withFetch(t, async (url, init) => {
+    capturedVariables = JSON.parse(init.body).variables;
+    return fakeResponse(200, {
+      data: { orders: { edges: [{ node: { id: 'gid://shopify/Order/7772060320017' } }] } },
+    });
+  });
+
+  const client = new ShopifyClient('US');
+  const tail = await client.findOrderIdTailByName('#9928');
+
+  assert.equal(tail, '7772060320017');
+  assert.equal(capturedVariables.query, 'name:#9928');
+});
+
+test('findOrderIdTailByName returns null when no order matches', async (t) => {
+  withToken(t);
+  withFetch(t, async () => fakeResponse(200, { data: { orders: { edges: [] } } }));
+
+  const client = new ShopifyClient('US');
+  const tail = await client.findOrderIdTailByName('#nope');
+
+  assert.equal(tail, null);
+});
+
+test('findOrderIdTailByName surfaces a GraphQL error instead of returning null', async (t) => {
+  withToken(t);
+  withFetch(t, async () => fakeResponse(200, { errors: [{ message: 'boom' }] }));
+
+  const client = new ShopifyClient('US');
+  await assert.rejects(() => client.findOrderIdTailByName('#9928'), /order lookup by name failed/);
+});

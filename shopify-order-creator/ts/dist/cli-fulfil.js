@@ -1,54 +1,72 @@
 "use strict";
 /**
- * Hand-driven fulfil CLI — TAA-34, slice A of the TAA-21 fulfilment
- * workstream. Fulfils one shipment from hand-supplied IDs against real
- * staging. Deliberately narrow: no DynamoDB reads, no verification, no
- * regression cases — this exists to prove the /staging/fulfil endpoint
- * contract before slices B-F build on top of it.
+ * Order-driven fulfil CLI — TAA-36, slice C of the TAA-21 fulfilment
+ * workstream. One command takes a Shopify order (name or numeric id) and
+ * fulfils every shipment on it, with no hand-supplied ids: order -> order PK
+ * -> shipment rows -> grouped items -> payload per shipment, via
+ * flows/fulfilFlow.ts.
+ *
+ * Supersedes TAA-34's hand-driven `--shipment`/`--item` surface. That mode
+ * could never read the shipments table (no DynamoDB access, by design, to
+ * prove the endpoint contract in isolation) and so could only guess at a
+ * tracking number by scraping response-body fields that don't exist. This
+ * flow reads the real row instead of guessing — see fulfilFlow.ts.
  *
  * Fulfilment is irreversible on staging and a 200 produces a real Auspost
- * staging shipment — there is no dry-run mode.
+ * staging shipment — there is no dry-run mode. TAA-41 confirmed the backend
+ * does not guard against re-fulfilling an already-FULFILLED shipment, so
+ * this flow does that check itself before ever calling the endpoint.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.printFulfilHelp = printFulfilHelp;
 exports.parseFulfilArgs = parseFulfilArgs;
 exports.runFulfilCli = runFulfilCli;
+const config_1 = require("./config");
+const dynamo_1 = require("./clients/dynamo");
+const dynamoReader_1 = require("./readers/dynamoReader");
+const shopify_1 = require("./clients/shopify");
 const fulfilment_1 = require("./clients/fulfilment");
-const TRACKING_NUMBER_FIELDS = ["tracking_number", "trackingNumber", "tracking_id", "consignment_number"];
+const fulfilFlow_1 = require("./flows/fulfilFlow");
 function printFulfilHelp() {
-    console.log(`Usage: node dist/index.js fulfil --shipment <uuid> --item ITEM#<uuid> [--item ITEM#<uuid> ...]
+    console.log(`Usage: node dist/index.js fulfil --order <name|id> --store <US|PS>
 
-Fulfils one shipment against staging from hand-supplied IDs (TAA-34). Makes
-no DynamoDB reads and asserts nothing beyond the HTTP response — it exists to
-prove the /staging/fulfil endpoint contract before anything is built on top
-of it.
+Fulfils every shipment on one order against real staging (TAA-36) — resolves
+the order to its DynamoDB rows, waits for shipment item counts to settle,
+checks each shipment isn't already FULFILLED, then fulfils it and waits for
+the row to settle before reporting.
 
 Fulfilment is IRREVERSIBLE on staging and a 200 produces a real Auspost
-staging shipment. Use a fresh, already-allocated shipment for each run.
+staging shipment per shipment on the order. There is no backend guard
+against re-fulfilling an already-FULFILLED shipment (TAA-41) — this command
+checks the shipment row itself and skips anything already fulfilled.
 
-  --shipment <uuid>       Bare shipment UUID — the SHIPMENT# sort key with
-                          the prefix stripped. Do not include "SHIPMENT#".
-  --item ITEM#<uuid>      One shipment item id, ITEM# prefix retained.
-                          Repeatable: pass once per item on the shipment.
+  --order <name|id>       Shopify order display name (e.g. 9928 or "#9928")
+                          or the numeric tail of its GID.
+  --store <US|PS>         Target store (default: US)
   --help, -h              Show this help text
 
-Requires FULFIL_BASE_URL and FULFIL_API_KEY in the environment. The client
-refuses to run against any host other than staging.
+Requires FULFIL_BASE_URL, FULFIL_API_KEY, and the usual Shopify/AWS
+environment (see CLAUDE.md). The fulfilment client refuses to run against
+any host other than staging.
 `);
 }
 function parseFulfilArgs(argv) {
-    const config = { help: false, shipmentId: "", itemIds: [] };
+    const config = { help: false, order: "", store: "US" };
     for (let index = 0; index < argv.length; index += 1) {
         const arg = argv[index];
         if (arg === "--help" || arg === "-h") {
             config.help = true;
         }
-        else if (arg === "--shipment" && argv[index + 1]) {
-            config.shipmentId = argv[index + 1];
+        else if (arg === "--order" && argv[index + 1]) {
+            config.order = argv[index + 1];
             index += 1;
         }
-        else if (arg === "--item" && argv[index + 1]) {
-            config.itemIds.push(argv[index + 1]);
+        else if (arg === "--store" && argv[index + 1]) {
+            const value = argv[index + 1];
+            if (value !== "US" && value !== "PS") {
+                throw new Error(`--store must be US or PS, got "${value}"`);
+            }
+            config.store = value;
             index += 1;
         }
         else {
@@ -58,29 +76,15 @@ function parseFulfilArgs(argv) {
     if (config.help) {
         return config;
     }
-    if (!config.shipmentId) {
-        throw new Error("--shipment is required (bare shipment UUID, e.g. --shipment d4948c69-af52-488a-ad5c-48ac0fc38986)");
-    }
-    if (config.shipmentId.includes("SHIPMENT#")) {
-        throw new Error(`--shipment must be the bare UUID with the "SHIPMENT#" prefix stripped, got "${config.shipmentId}"`);
-    }
-    if (config.itemIds.length === 0) {
-        throw new Error("at least one --item is required (e.g. --item ITEM#f8f9e240-b89a-46db-92e8-1a1483249997)");
-    }
-    const badItems = config.itemIds.filter((itemId) => !itemId.startsWith("ITEM#"));
-    if (badItems.length > 0) {
-        throw new Error(`--item values must retain the "ITEM#" prefix, got: ${JSON.stringify(badItems)}`);
+    if (!config.order) {
+        throw new Error('--order is required (Shopify order name or id, e.g. --order 9928 or --order "#9928")');
     }
     return config;
 }
-function extractTrackingNumber(body) {
-    for (const field of TRACKING_NUMBER_FIELDS) {
-        const value = body[field];
-        if (typeof value === "string" && value) {
-            return value;
-        }
-    }
-    return undefined;
+function printOutcome(outcome) {
+    const tracking = outcome.trackingNumber ?? "(none)";
+    const detail = outcome.detail ? ` — ${outcome.detail}` : "";
+    console.log(`  shipment ${outcome.shipmentId}: ${outcome.itemCount} item(s), ${outcome.status}, tracking ${tracking}${detail}`);
 }
 async function runFulfilCli(argv) {
     const config = parseFulfilArgs(argv);
@@ -88,18 +92,20 @@ async function runFulfilCli(argv) {
         printFulfilHelp();
         return;
     }
-    const client = new fulfilment_1.FulfilmentClient();
-    const fulfilledAt = (0, fulfilment_1.formatFulfilledAt)(new Date());
-    const payload = (0, fulfilment_1.buildFulfilPayload)(config.shipmentId, config.itemIds, fulfilment_1.FULFILLER, fulfilledAt);
-    console.log(`Fulfilling shipment ${config.shipmentId} (${config.itemIds.length} item(s)) at ${fulfilledAt} (Australia/Brisbane)...`);
-    const body = await client.fulfil(payload);
-    console.log("Status: 200");
-    console.log(`Response body: ${JSON.stringify(body, null, 2)}`);
-    const trackingNumber = extractTrackingNumber(body);
-    if (trackingNumber) {
-        console.log(`Tracking number: ${trackingNumber}`);
+    const regressionConfig = (0, config_1.defaultConfig)();
+    regressionConfig.store = config.store;
+    const shopify = new shopify_1.ShopifyClient(config.store);
+    const reader = new dynamoReader_1.DynamoReader(new dynamo_1.DynamoClient(regressionConfig), regressionConfig);
+    const fulfilmentClient = new fulfilment_1.FulfilmentClient();
+    const idTail = await (0, fulfilFlow_1.resolveOrderIdTail)(shopify, config.order);
+    console.log(`Resolved order "${config.order}" (${config.store}) -> id tail ${idTail}`);
+    const result = await (0, fulfilFlow_1.fulfilOrder)({ reader, fulfilmentClient, verbose: regressionConfig.verbose }, config.store, idTail);
+    console.log(`Order PK ${result.orderPk}: ${result.totalUnits} unit(s) across ${result.shipments.length} shipment(s) ` +
+        `(item-count settle took ${result.itemSettleElapsedSeconds.toFixed(1)}s)`);
+    for (const outcome of result.shipments) {
+        printOutcome(outcome);
     }
-    else {
-        console.log(`Tracking number: not found under ${JSON.stringify(TRACKING_NUMBER_FIELDS)} — inspect the response body above and record the real field name for slice D.`);
+    if (result.shipments.some((outcome) => outcome.status === "FAILED")) {
+        process.exitCode = 1;
     }
 }
