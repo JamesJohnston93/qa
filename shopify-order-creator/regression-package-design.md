@@ -92,6 +92,8 @@ Run per store (US and PS) unless noted. Each case seeds its own inventory state 
 
 *(Status update, 2026-08-06: all 8 cases are built and are the default set — they all run when `--cases` is omitted. Case names as implemented added below, since those are what you type. `CaseDefinition`/`NewStoreCaseDefinition` carry a `kind: "pipeline" | "newstore"` discriminator and `runner.ts`'s `run()` partitions on it: the six pipeline cases get the progress tracker + `--parallel` wave scheduler, the two NewStore cases always run sequentially — they're a 2-stage inject → read-back round trip with no Shopify/Dynamo state.)*
 
+*(Status update, 2026-08-23: two more cases added (TAA-39) — the default set is now 10, see the table below. Both new cases are `pipeline`-kind, same treatment as cases 1-6. `fulfil_single`/`fulfil_split` additionally drive a fulfil + verify-fulfilment + allocation-reflection sequence after the usual pipeline (TAA-36/37/38), gated by a `CaseDefinition.fulfilment: boolean` flag rather than a new `kind`.)*
+
 | # | Case | Name / kind | Inventory setup | Expected outcome |
 | --- | --- | --- | --- | --- |
 | 1 | Single item, single store | `single` · pipeline | All stock at one ATP location | 1 shipment, allocated to that store |
@@ -100,10 +102,12 @@ Run per store (US and PS) unless noted. Each case seeds its own inventory state 
 | 4 | Split shipment | `split` · pipeline | Each SKU stocked at a different store only | One shipment per store, locations correct |
 | 5 | Undeliverable | `undeliverable` · pipeline | Zero stock everywhere | Item marked UNDELIVERABLE, Shopify refund issued, item rows cleaned up in both AWS tables (shipments: status → `REMOVED`, not deleted — live finding Jul 17) |
 | 6 | Partial undeliverable | `partial_undeliverable` · pipeline | One SKU stocked, one zero | Mixed: allocated shipment + refunded undie |
-| 7 | NS SFS injection | `ns_sfs` · newstore | ~~Standard top-up~~ — as built these cases never touch `staging-inventory-v2` | Order lands in NewStore, inventory correct |
-| 8 | NS OTC injection | `ns_otc` · newstore | ~~Standard top-up~~ — as above | Preconfirmed/fulfilled order, no shipping |
+| 7 | Fulfil, single shipment | `fulfil_single` · pipeline | All stock at one ATP location | 1 shipment, fulfilled end to end — tracking number in both AWS tables, Shopify fulfilment matches the allocation (TAA-39) |
+| 8 | Fulfil, split shipment | `fulfil_split` · pipeline | Each SKU stocked at a different store only | Two shipments across two stores, both fulfilled independently, each with its own tracking number and correctly-located Shopify fulfilment (TAA-39) |
+| 9 | NS SFS injection | `ns_sfs` · newstore | ~~Standard top-up~~ — as built these cases never touch `staging-inventory-v2` | Order lands in NewStore, inventory correct |
+| 10 | NS OTC injection | `ns_otc` · newstore | ~~Standard top-up~~ — as above | Preconfirmed/fulfilled order, no shipping |
 
-Note: `cli.ts`'s own `--help` text lists only six of these names (it omits `unique` and `partial_undeliverable`) — a known defect in the help string, not in the case set. `--list-cases` is the reliable listing.
+Note: `cli.ts`'s `--help`/`--list-cases` text has historically drifted behind the real case set (fixed 2026-08-06 for `unique`/`partial_undeliverable`, again 2026-08-23 for the two fulfilment cases) — `tests/cli.test.js` now pins the full case list so a future addition fails loudly offline instead of only being caught by a reviewer running `--help`.
 
 ### Assertions per case (the alignment checks)
 
