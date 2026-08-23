@@ -3,7 +3,7 @@
 TypeScript CLI + regression harness (`ts/`) for placing test orders on Universal Store / Perfect Stranger **staging** and verifying omni-channel alignment across Shopify, AWS (DynamoDB), and NewStore. Two entry points from the same build: `node dist/index.js order ...` places one ad-hoc test order on demand (TAA-15); `node dist/index.js` with no subcommand runs the automated regression suite (TAA-13/14/17).
 
 **Owner:** JJ (james.johnston@universalstore.com.au). Tool originally by Jared Davis (as a Python CLI — see "TS rewrite complete" below).
-**Tracking:** Jira project TAA (current: TAA-21 fulfilment — slices A **TAA-34** and B **TAA-35** done, live-confirmed; **TAA-41** re-test done, confirmed a real backend gap (2026-08-23); slice C **TAA-36** next; TAA-40 owns the outstanding PS live run; TAA-31/32/33 queued behind TAA-21). Docs: Confluence QD space → "QA Automation Tool" page tree — see `regression-package-design.md` and `scope-of-work-reworked.md` in this folder, and `qa-order-cli-tool-documentation.md` for the `order` command's user-facing docs.
+**Tracking:** Jira project TAA (current: **TAA-21 fulfilment workstream — all six slices (TAA-34..39) done**, live-confirmed on both stores (2026-08-23); **TAA-42** filed for a real backend defect found by the `--repeat 3` check (Shopify fulfilment sync sometimes never fires, ~27% observed) — deliberately deferred, full order regression coverage is the priority before chasing it; TAA-40 owns the outstanding PS `--repeat 3` live run for the *baseline* set; TAA-31/32/33 queued next). Docs: Confluence QD space → "QA Automation Tool" page tree — see `regression-package-design.md` and `scope-of-work-reworked.md` in this folder, and `qa-order-cli-tool-documentation.md` for the `order` command's user-facing docs.
 
 ## TAA-34 sign-off (2026-08-21) — fulfilment slice A live-confirmed, two contract deviations found
 
@@ -217,48 +217,43 @@ in the caller (TAA-36).
 TAA-35 ticket updated, checklist (both the original scope and the 2026-08-21
 scope addition) ticked, status → Done.
 
-## ⚠ NEXT SESSION — TAA-36 (fulfilment slice C)
+## TAA-21 fulfilment workstream — ALL SIX SLICES DONE (2026-08-23)
 
-**TAA-36 — one command fulfils a whole order end to end.** This is where
-the CLI gains Dynamo access (order lookup by Shopify id, item-count settle
-wait, then fulfil). Read TAA-36's own ticket for the contract; don't re-read
-TAA-37..39, each is its own session.
+| Slice | Ticket | Done when | Status |
+| --- | --- | --- | --- |
+| A | **TAA-34** | Paste a shipment id + item ids by hand → 200 + tracking number | ✅ live-confirmed |
+| B | **TAA-35** | Payload built from the shipment's real rows, any item count | ✅ live-confirmed |
+| C | **TAA-36** | One command fulfils a whole order end to end | ✅ live-confirmed |
+| D | **TAA-37** | Fulfilled state asserted in shipments + orders tables | ✅ live-confirmed |
+| E | **TAA-38** | Shopify's fulfilment view checked against the allocation | ✅ live-confirmed |
+| F | **TAA-39** | `fulfil_single` / `fulfil_split` green on both stores under `--repeat` | ✅ harness side done; see caveat below |
 
-Two things TAA-41 makes non-negotiable for this slice, both confirmed live
-2026-08-23 (see sign-off above):
+Full build/live-confirm detail for each slice lives in its own sign-off —
+`ts/signoffs/TAA-36.md`, `TAA-37.md`, `TAA-38.md`, `TAA-39.md` — not
+duplicated here. Summary: `fulfil_single`/`fulfil_split` are now two of the
+regression suite's ten default cases on pool slots 10-12 (13 free for
+TAA-31), wired through `runner.ts`'s `fulfil`/`fulfilment_verify`/
+`allocation_reflection` stages, live-confirmed on both US and PS including
+under the `--parallel` wave scheduler.
 
-1. **The pre-fulfil Dynamo status check is mandatory, not optional.** The
-   backend provides zero protection against re-fulfilling an already-
-   `FULFILLED` shipment — confirmed by re-firing a shipment settled for two
-   full days and getting a fresh 200 + a silently overwritten
-   `trackingNumber` both times. TAA-36 must read the shipment row and
-   skip/fail before ever calling `/staging/fulfil` on one that's already
-   `FULFILLED`.
-2. **`waitForShipmentFulfilled` needs both `status === FULFILLED` AND
-   `trackingNumber` present, checked together** — measured live, the two
-   fields do not land at the same time (`trackingNumber` arrived first in
-   both measured runs, ~2.4-3.0s after the call; `status` flipped later, at
-   6.5-9.0s). Never treat either field alone as sufficient.
+**Caveat on slice F — the `--repeat 3` zero-variance check does NOT pass,
+and re-running it won't fix that.** It surfaced **TAA-42**: Shopify
+fulfilment sync sometimes never fires after a successful `/staging/fulfil`
+call (DynamoDB settles correctly with a real tracking number; Shopify shows
+zero fulfilments for the whole order, confirmed still empty on direct
+re-query minutes later) — ~27% observed across live runs that session. This
+is a real backend defect, not a harness bug (`report.ts`'s `diffRepeats`
+caught exactly the nondeterminism it exists to catch). **Filed and
+deliberately deferred per JJ — full order regression coverage is the
+priority; circle back to TAA-42 and any other backend bugs the tool finds
+after that.** Don't re-investigate TAA-42 unprompted.
 
-The reader now has everything TAA-36 needs already exposed:
-`getShipmentItemsByPk` → `ShipmentItem[]` (with `shipmentItemId`/
-`shipmentId`), `groupItemsByShipment`, `getShipmentsByPk` → `ShipmentSummary[]`
-(`status`/`trackingNumber`/`carrier`/`pendingAction`/`allocatedStore`), and
-`buildFulfilPayloadForShipment`. TAA-36 is wiring these into one CLI command
-plus the settle-wait polling helpers (item-count settle before fulfil,
-fulfilment settle after — two different waits per rule 5 above, don't
-collapse them), not building new Dynamo access from scratch.
-
-Poll window starting points from measured data: fulfilment settle ~6.5-9.0s
-(n=2) against a 90s window; item-count settle not yet measured — TAA-36 is
-the first slice to actually need that wait timed.
-
-**Deferred, still owned by TAA-40:** `--store PS --parallel --repeat 3`. It is
-TAA-22's last unticked acceptance item *and* the only live confirmation of the
+**Deferred, still owned by TAA-40:** `--store PS --parallel --repeat 3` for
+the original *baseline* (non-fulfilment) case set. It is TAA-22's last
+unticked acceptance item *and* the only live confirmation of the
 parallel-by-default flip (`defaultConfig()` set `parallel: true` on 2026-08-06;
-no live run since, proven equivalent offline at 169/169 but never on staging).
-It sat in a comment on a closed ticket for two weeks — as of 2026-08-21 it has
-its own ticket. TAA-22 stays Done. If that run fails, the two live risks — the
+proven equivalent offline at 169/169 but never confirmed live under repeat).
+TAA-22 stays Done regardless. If that run fails, the two live risks — the
 ~29 min staging slowdown, and the isolated PS `split` inventory-decrement miss
 (order #3297, `33948010@ATP#99` never dropped 99→98 in the window) — are real
 backend findings, not harness defects.
@@ -267,30 +262,17 @@ backend findings, not harness defects.
 `PS_ACCESS_TOKEN` and lack `PS_CLIENT_ID`/`PS_CLIENT_SECRET`. The failure
 message doesn't point back at the stale token.
 
-**The full slice plan.** TAA-21 is now an
-umbrella **Workstream**; the work is six child tasks, each sized for one
-sitting. Do them in order — each builds on the last. Point a session at one
-ticket rather than at TAA-21, to keep context small.
+## ⚠ NEXT SESSION — TAA-31 (rejection & reallocation)
 
-| Slice | Ticket | Done when |
-| --- | --- | --- |
-| A | **TAA-34** | Paste a shipment id + item ids by hand → 200 + tracking number |
-| B | **TAA-35** | Payload built from the shipment's real rows, any item count |
-| C | **TAA-36** | One command fulfils a whole order end to end |
-| D | **TAA-37** | Fulfilled state asserted in shipments + orders tables |
-| E | **TAA-38** | Shopify's fulfilment view checked against the allocation |
-| F | **TAA-39** | `fulfil_single` / `fulfil_split` green on both stores under `--repeat` |
+With TAA-21 fully sliced and built, **TAA-31 is next up** (blocked
+previously on JJ supplying the reject call — check the ticket for whether
+that's landed). It gets the last free pool slot (13) on both stores'
+14-SKU pools. TAA-32 (click & collect) and TAA-33 (order-finalised — reuses
+`fulfil_split`'s shape, per TAA-39's sign-off, rather than needing its own
+slot) queue behind it. TAA-42 (Shopify fulfilment-sync gap) stays open and
+deferred — don't pick it up without JJ asking for it first.
 
-**Start with TAA-34.** It touches no DynamoDB and asserts nothing — it exists
-to prove the endpoint contract against real staging before three more slices
-get built on top of it. If the contract differs from what's documented, that's
-far cheaper to find in A than in D.
-
-A–C are the walking skeleton. D–E make it a test rather than a script. F folds
-it into the regression suite. C on its own gives an operator-facing "fulfil
-this order" command, useful even if the rest slips.
-
-Full contract and design detail: dev doc
+Full contract and design detail for the fulfilment endpoint: dev doc
 https://universalstore.atlassian.net/wiki/spaces/QD/pages/1866727460
 
 **This project is staging-only. Production endpoints, hosts and keys stay out
@@ -334,28 +316,34 @@ Payload facts worth not re-deriving:
   will not stop a wrongful re-fire.
 
 **Item settling — a case-design consideration, not a defect.** Allocation
-writes the `SHIPMENT#` row first, then updates `ITEM#` rows one at a time. The
-item count in the payload must equal the number of items carrying that
-`shipmentId`. Fulfilling on first sight of a shipment id would send a short
-payload — that's a flaw in how the case was built, not a finding. TAA-36 owns
-waiting for the counts to settle. Whether that's a formal poll stage or handled
-inline is worth deciding with real timings in front of you; split it out if it
-grows.
+writes the `SHIPMENT#` row first, then updates `ITEM#` rows one at a time.
+The item count in a fulfil payload must equal the number of items carrying
+that `shipmentId`, or a short payload goes out. Solved in TAA-36's
+`flows/fulfilFlow.ts` (`itemCountsSettled`) — reuse it, don't re-derive.
 
-**Wiring traps (mostly TAA-39's problem, but know them now):**
-`stageSequenceFor` (`progress.ts:11`) must gain any new stage name or run
-progress/ETA silently drift — it is NOT derived from the runner's actual
-`stageDone()` calls. `cli.ts:107` indexes `allCases[name]` unguarded, so a
-pipeline case outside `buildCases()`'s return throws there. `hasRefund` is
-computed in three places (`runner.ts:159`, `runner.ts:463`, `cli.ts:107`).
-`printHelp()`/`printCases()` hardcode "all 8".
+**Wiring traps — all four handled by TAA-39, but they'll bite again if a
+future case type is added without the same care:** `stageSequenceFor`
+(`progress.ts`) must gain any new stage name(s) or run progress/ETA silently
+drift — it is NOT derived from the runner's actual `stageDone()` calls.
+`cli.ts`'s `allCases[name]` indexing needs a pipeline-kind case to actually
+be in `buildCases()`'s return (TAA-39 merged the fulfilment cases straight
+into it, rather than guarding the index, specifically to avoid this).
+`hasRefund` (and now `hasFulfilment`) must be computed the same way in all
+three places: `runner.ts`'s `runCase()`, `runner.ts`'s `run()`, and
+`cli.ts`'s `runCli()`. `printHelp()`/`printCases()` hardcode the case
+count/list — now "all 10", update both in the same commit as any case
+change (this exact class of defect was fixed twice: 2026-08-06 for
+`unique`/`partial_undeliverable`, and again implicitly by TAA-39 merging
+into `buildCases()` rather than adding a case count printCases() wouldn't
+see).
 
-Poll windows proposed: `fulfilment` 150s (TAA-37). Deliberately not 300s —
-JJ's ">5 min = probable bug" threshold is a triage signal, not a wait-it-out
-budget. Tune from live data. **Measured (TAA-41, 2026-08-23, n=2): 6.5-9.0s
-settle time** — 150s is now a ~17-23x margin. Kept as proposed rather than
-shrunk on two samples; revisit with more data if TAA-37 wants a tighter
-window.
+Poll windows: `fulfilment` 150s (TAA-37), still generous against the
+**measured 6.5-9.0s settle time** (TAA-41, n=2) — kept rather than shrunk on
+thin samples. `fulfil`/`fulfilment_verify`/`allocation_reflection` stage
+timings from TAA-39's live runs mostly landed well inside this (single-digit
+to low-tens of seconds) — the exception being the TAA-42 cases, which
+correctly ran the *entire* window before giving up, since the backend never
+sent anything to find.
 
 **Fulfilment is irreversible on staging** (same class as `zeroEverywhere`) and
 a 200 produces a real Auspost staging shipment. **Confirmed (TAA-41,
