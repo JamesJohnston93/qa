@@ -40,3 +40,4 @@ function describe(value: unknown): string {
 }
 
 export * from "./fulfilment";
+export * from "./allocation";
