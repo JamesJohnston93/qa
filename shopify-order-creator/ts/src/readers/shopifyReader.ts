@@ -4,7 +4,8 @@
  * NOTE: Shopify merges duplicate line items (3x same SKU = one line item
  * with quantity 3). DynamoDB and NewStore keep one row per unit. Assertions
  * must compare SKU -> total-quantity maps, never line counts — use
- * skuQuantities().
+ * skuQuantities(). The same merge applies within a single fulfilment's
+ * fulfillmentLineItems (TAA-38) — use fulfilmentSkuQuantities() there too.
  */
 
 import type { ShopifyClient } from "../clients/shopify";
@@ -22,12 +23,35 @@ export interface ShopifyRefund {
   items: Array<{ sku: string | null; quantity: number }>;
 }
 
+export interface ShopifyFulfilmentLineItem {
+  sku: string | null;
+  quantity: number;
+}
+
+/**
+ * One Shopify Fulfillment record (TAA-38). `Order.fulfillments` is a plain
+ * list, not a connection — confirmed live via schema introspection against
+ * API 2025-10 (`fulfillments(first: Int, query: String): [Fulfillment!]!`),
+ * unlike `lineItems`/`refunds.refundLineItems` above. `locationId`/
+ * `locationName` come from `Fulfillment.location`, nullable per the schema —
+ * a fulfilment with no resolvable location surfaces as `null` here so a
+ * caller reports it as a mismatch with real data instead of crashing.
+ */
+export interface ShopifyFulfilment {
+  id: string;
+  status: string | null;
+  locationId: string | null;
+  locationName: string | null;
+  items: ShopifyFulfilmentLineItem[];
+}
+
 export interface ShopifyOrderSnapshot {
   id: string;
   name: string;
   financialStatus: string | null;
   lineItems: ShopifyLineItem[];
   refunds: ShopifyRefund[];
+  fulfilments: ShopifyFulfilment[];
   raw: unknown;
 }
 
@@ -61,6 +85,22 @@ const ORDER_QUERY = `
             }
           }
         }
+        fulfillments(first: 50) {
+          id
+          status
+          location {
+            id
+            name
+          }
+          fulfillmentLineItems(first: 50) {
+            edges {
+              node {
+                quantity
+                lineItem { sku }
+              }
+            }
+          }
+        }
       }
     }
   }
@@ -81,6 +121,14 @@ interface OrderQueryResult {
       createdAt?: string;
       totalRefundedSet: { shopMoney: { amount: string } };
       refundLineItems: {
+        edges: Array<{ node: { quantity: number; lineItem: { sku: string } | null } }>;
+      };
+    }>;
+    fulfillments: Array<{
+      id: string;
+      status: string | null;
+      location: { id: string; name: string } | null;
+      fulfillmentLineItems: {
         edges: Array<{ node: { quantity: number; lineItem: { sku: string } | null } }>;
       };
     }>;
@@ -113,12 +161,24 @@ export async function getOrder(client: ShopifyClient, orderGid: string): Promise
     })),
   }));
 
+  const fulfilments: ShopifyFulfilment[] = node.fulfillments.map((fulfillment) => ({
+    id: fulfillment.id,
+    status: fulfillment.status,
+    locationId: fulfillment.location?.id ?? null,
+    locationName: fulfillment.location?.name ?? null,
+    items: fulfillment.fulfillmentLineItems.edges.map((edge) => ({
+      sku: edge.node.lineItem?.sku ?? null,
+      quantity: Number(edge.node.quantity),
+    })),
+  }));
+
   return {
     id: node.id,
     name: node.name,
     financialStatus: node.displayFinancialStatus,
     lineItems,
     refunds,
+    fulfilments,
     raw: node,
   };
 }
@@ -127,6 +187,22 @@ export async function getOrder(client: ShopifyClient, orderGid: string): Promise
 export function skuQuantities(snapshot: ShopifyOrderSnapshot): Record<string, number> {
   const out: Record<string, number> = {};
   for (const item of snapshot.lineItems) {
+    out[item.sku] = (out[item.sku] ?? 0) + item.quantity;
+  }
+  return out;
+}
+
+/**
+ * SKU -> total quantity map for one fulfilment (duplicate-line-item safe —
+ * see the module doc comment: the same Shopify line-item merge that applies
+ * at order level applies within a fulfilment's fulfillmentLineItems too).
+ */
+export function fulfilmentSkuQuantities(fulfilment: ShopifyFulfilment): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const item of fulfilment.items) {
+    if (item.sku === null) {
+      continue;
+    }
     out[item.sku] = (out[item.sku] ?? 0) + item.quantity;
   }
   return out;

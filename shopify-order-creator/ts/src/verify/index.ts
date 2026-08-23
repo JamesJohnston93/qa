@@ -38,3 +38,5 @@ function describe(value: unknown): string {
     return String(value);
   }
 }
+
+export * from "./allocation";

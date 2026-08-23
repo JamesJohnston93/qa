@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { skuQuantities, orderIdTail } = require('../dist/readers/shopifyReader.js');
+const { skuQuantities, orderIdTail, fulfilmentSkuQuantities } = require('../dist/readers/shopifyReader.js');
 const { assertShopifyOrder, assertOrdersTableAlignment } = require('../dist/verify/orders.js');
 
 function snapshot(lineItems, financialStatus = 'PAID') {
@@ -45,4 +45,29 @@ test('assertOrdersTableAlignment passes when staging-orders-v2 sku/qty matches t
 
 test('assertOrdersTableAlignment throws orders_table.items on mismatch', () => {
   assert.throws(() => assertOrdersTableAlignment({ sku1: 2 }, { sku1: 3 }, '#123'), /orders_table\.items/);
+});
+
+function fulfilment(items, overrides = {}) {
+  return { id: 'gid://shopify/Fulfillment/1', status: 'SUCCESS', locationId: null, locationName: null, items, ...overrides };
+}
+
+test('fulfilmentSkuQuantities merges a duplicate line item within one fulfilment (same Shopify merge as order-level line items)', () => {
+  const f = fulfilment([{ sku: 'sku1', quantity: 3 }]);
+  assert.deepEqual(fulfilmentSkuQuantities(f), { sku1: 3 });
+});
+
+test('fulfilmentSkuQuantities sums separate fulfillmentLineItems for the same sku', () => {
+  const f = fulfilment([
+    { sku: 'sku1', quantity: 1 },
+    { sku: 'sku1', quantity: 2 },
+  ]);
+  assert.deepEqual(fulfilmentSkuQuantities(f), { sku1: 3 });
+});
+
+test('fulfilmentSkuQuantities ignores a line item with no sku (e.g. a deleted variant) rather than keying on "null"', () => {
+  const f = fulfilment([
+    { sku: null, quantity: 1 },
+    { sku: 'sku1', quantity: 1 },
+  ]);
+  assert.deepEqual(fulfilmentSkuQuantities(f), { sku1: 1 });
 });

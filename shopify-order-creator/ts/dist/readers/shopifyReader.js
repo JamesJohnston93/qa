@@ -5,11 +5,13 @@
  * NOTE: Shopify merges duplicate line items (3x same SKU = one line item
  * with quantity 3). DynamoDB and NewStore keep one row per unit. Assertions
  * must compare SKU -> total-quantity maps, never line counts — use
- * skuQuantities().
+ * skuQuantities(). The same merge applies within a single fulfilment's
+ * fulfillmentLineItems (TAA-38) — use fulfilmentSkuQuantities() there too.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.getOrder = getOrder;
 exports.skuQuantities = skuQuantities;
+exports.fulfilmentSkuQuantities = fulfilmentSkuQuantities;
 exports.orderIdTail = orderIdTail;
 const ORDER_QUERY = `
   query getOrder($id: ID!) {
@@ -33,6 +35,22 @@ const ORDER_QUERY = `
           createdAt
           totalRefundedSet { shopMoney { amount } }
           refundLineItems(first: 50) {
+            edges {
+              node {
+                quantity
+                lineItem { sku }
+              }
+            }
+          }
+        }
+        fulfillments(first: 50) {
+          id
+          status
+          location {
+            id
+            name
+          }
+          fulfillmentLineItems(first: 50) {
             edges {
               node {
                 quantity
@@ -68,12 +86,23 @@ async function getOrder(client, orderGid) {
             quantity: Number(edge.node.quantity),
         })),
     }));
+    const fulfilments = node.fulfillments.map((fulfillment) => ({
+        id: fulfillment.id,
+        status: fulfillment.status,
+        locationId: fulfillment.location?.id ?? null,
+        locationName: fulfillment.location?.name ?? null,
+        items: fulfillment.fulfillmentLineItems.edges.map((edge) => ({
+            sku: edge.node.lineItem?.sku ?? null,
+            quantity: Number(edge.node.quantity),
+        })),
+    }));
     return {
         id: node.id,
         name: node.name,
         financialStatus: node.displayFinancialStatus,
         lineItems,
         refunds,
+        fulfilments,
         raw: node,
     };
 }
@@ -81,6 +110,21 @@ async function getOrder(client, orderGid) {
 function skuQuantities(snapshot) {
     const out = {};
     for (const item of snapshot.lineItems) {
+        out[item.sku] = (out[item.sku] ?? 0) + item.quantity;
+    }
+    return out;
+}
+/**
+ * SKU -> total quantity map for one fulfilment (duplicate-line-item safe —
+ * see the module doc comment: the same Shopify line-item merge that applies
+ * at order level applies within a fulfilment's fulfillmentLineItems too).
+ */
+function fulfilmentSkuQuantities(fulfilment) {
+    const out = {};
+    for (const item of fulfilment.items) {
+        if (item.sku === null) {
+            continue;
+        }
         out[item.sku] = (out[item.sku] ?? 0) + item.quantity;
     }
     return out;
