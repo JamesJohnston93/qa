@@ -17,8 +17,15 @@ exports.estimateRemainingSeconds = estimateRemainingSeconds;
 exports.formatDuration = formatDuration;
 exports.formatProgressLine = formatProgressLine;
 exports.STAGE_FALLBACK_SECONDS = 9; // ~65s end-to-end / ~7.5 stages per case (TAA-14 ticket baseline)
-/** The stage names a case runs through, in order — varies only by refund vs no-refund path. */
-function stageSequenceFor(hasRefund) {
+/**
+ * The stage names a case runs through, in order — varies by refund vs
+ * no-refund path, and by whether the case also drives a fulfilment (TAA-39:
+ * fulfil_single/fulfil_split). This list is hand-maintained, NOT derived from
+ * runner.ts's actual stageDone() calls — any new stage runner.ts adds must be
+ * added here too, or run progress/ETA silently drift out of sync with what's
+ * actually happening.
+ */
+function stageSequenceFor(hasRefund, hasFulfilment = false) {
     return [
         "seed_inventory",
         "create_order",
@@ -27,14 +34,25 @@ function stageSequenceFor(hasRefund) {
         "allocation",
         ...(hasRefund ? ["refund", "cleanup"] : ["no_refund"]),
         "inventory",
+        ...(hasFulfilment ? ["fulfil", "fulfilment_verify", "allocation_reflection"] : []),
     ];
 }
-/** The full ordered stage plan for a run: every case, every repeat. */
-function buildRunPlan(caseNames, hasRefundFor, totalRepeats) {
+/**
+ * The full ordered stage plan for a run: every case, every repeat.
+ * `hasFulfilmentFor` defaults to "no case fulfils" so existing callers (and
+ * offline tests) that only know about refund vs no-refund keep working
+ * unchanged.
+ */
+function buildRunPlan(caseNames, hasRefundFor, totalRepeats, hasFulfilmentFor = () => false) {
     const plan = [];
     for (let repeatIndex = 0; repeatIndex < totalRepeats; repeatIndex += 1) {
         caseNames.forEach((caseName, caseIndex) => {
-            plan.push({ repeatIndex, caseIndex, caseName, stages: stageSequenceFor(hasRefundFor(caseName)) });
+            plan.push({
+                repeatIndex,
+                caseIndex,
+                caseName,
+                stages: stageSequenceFor(hasRefundFor(caseName), hasFulfilmentFor(caseName)),
+            });
         });
     }
     return plan;

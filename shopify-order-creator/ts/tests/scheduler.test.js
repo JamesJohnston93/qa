@@ -29,8 +29,9 @@ test('buildWaves handles a case whose skus overlap multiple earlier, already-pla
   assert.deepEqual(waves[1].map((c) => c.name), ['c']);
 });
 
-test('buildWaves matches the real TAA-14 Phase B US case set: all 6 fully disjoint, one wave', () => {
-  // single=0, multi=1, unique=2-4, split=5-6, undeliverable=7, partial_undeliverable=8-9
+test('buildWaves matches the real TAA-14/TAA-39 US case set: all 8 fully disjoint, one wave', () => {
+  // single=0, multi=1, unique=2-4, split=5-6, undeliverable=7, partial_undeliverable=8-9,
+  // fulfil_single=10, fulfil_split=11-12 (slot 13 free for TAA-31)
   const cases = [
     caseOf('single', ['0']),
     caseOf('multi', ['1']),
@@ -38,10 +39,12 @@ test('buildWaves matches the real TAA-14 Phase B US case set: all 6 fully disjoi
     caseOf('split', ['5', '6']),
     caseOf('undeliverable', ['7']),
     caseOf('partial_undeliverable', ['8', '9']),
+    caseOf('fulfil_single', ['10']),
+    caseOf('fulfil_split', ['11', '12']),
   ];
   const waves = buildWaves(cases);
   assert.equal(waves.length, 1);
-  assert.equal(waves[0].length, 6);
+  assert.equal(waves[0].length, 8);
 });
 
 test('runBounded never runs more than the concurrency cap at once', async () => {

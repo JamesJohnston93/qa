@@ -7,8 +7,15 @@
 
 export const STAGE_FALLBACK_SECONDS = 9; // ~65s end-to-end / ~7.5 stages per case (TAA-14 ticket baseline)
 
-/** The stage names a case runs through, in order — varies only by refund vs no-refund path. */
-export function stageSequenceFor(hasRefund: boolean): string[] {
+/**
+ * The stage names a case runs through, in order — varies by refund vs
+ * no-refund path, and by whether the case also drives a fulfilment (TAA-39:
+ * fulfil_single/fulfil_split). This list is hand-maintained, NOT derived from
+ * runner.ts's actual stageDone() calls — any new stage runner.ts adds must be
+ * added here too, or run progress/ETA silently drift out of sync with what's
+ * actually happening.
+ */
+export function stageSequenceFor(hasRefund: boolean, hasFulfilment = false): string[] {
   return [
     "seed_inventory",
     "create_order",
@@ -17,6 +24,7 @@ export function stageSequenceFor(hasRefund: boolean): string[] {
     "allocation",
     ...(hasRefund ? ["refund", "cleanup"] : ["no_refund"]),
     "inventory",
+    ...(hasFulfilment ? ["fulfil", "fulfilment_verify", "allocation_reflection"] : []),
   ];
 }
 
@@ -27,12 +35,27 @@ export interface RunPlanEntry {
   stages: string[];
 }
 
-/** The full ordered stage plan for a run: every case, every repeat. */
-export function buildRunPlan(caseNames: string[], hasRefundFor: (name: string) => boolean, totalRepeats: number): RunPlanEntry[] {
+/**
+ * The full ordered stage plan for a run: every case, every repeat.
+ * `hasFulfilmentFor` defaults to "no case fulfils" so existing callers (and
+ * offline tests) that only know about refund vs no-refund keep working
+ * unchanged.
+ */
+export function buildRunPlan(
+  caseNames: string[],
+  hasRefundFor: (name: string) => boolean,
+  totalRepeats: number,
+  hasFulfilmentFor: (name: string) => boolean = () => false,
+): RunPlanEntry[] {
   const plan: RunPlanEntry[] = [];
   for (let repeatIndex = 0; repeatIndex < totalRepeats; repeatIndex += 1) {
     caseNames.forEach((caseName, caseIndex) => {
-      plan.push({ repeatIndex, caseIndex, caseName, stages: stageSequenceFor(hasRefundFor(caseName)) });
+      plan.push({
+        repeatIndex,
+        caseIndex,
+        caseName,
+        stages: stageSequenceFor(hasRefundFor(caseName), hasFulfilmentFor(caseName)),
+      });
     });
   }
   return plan;

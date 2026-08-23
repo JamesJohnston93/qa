@@ -7,11 +7,19 @@
  *
  * SKU isolation (TAA-14 Phase B, 2026-07-31; PS caught up to the same pool
  * size in TAA-22, 2026-08-04): both US and PS now have 14-SKU pools
- * (variants.ts), and the 6 cases below use 10 fully disjoint pool slots
- * (single=0, multi=1, unique=2-4, split=5-6, undeliverable=7,
- * partial_undeliverable=8-9, slots 10-13 unused headroom) — no two cases
- * touch the same SKU, which is what makes the TAA-14 Phase B `--parallel`
- * scheduler safe to run cases concurrently on either store.
+ * (variants.ts). The 6 original cases use slots 0-9 (single=0, multi=1,
+ * unique=2-4, split=5-6, undeliverable=7, partial_undeliverable=8-9); TAA-39
+ * (slice F) adds fulfil_single=10 and fulfil_split=11-12, leaving slot 13
+ * free for TAA-31 (rejection). No two cases touch the same SKU, which is
+ * what makes the TAA-14 Phase B `--parallel` scheduler safe to run cases
+ * concurrently on either store.
+ *
+ * Fulfilment cases (`fulfilment: true`) run through the exact same
+ * seed/order/readback/allocation pipeline as the other six — the only
+ * difference is runner.ts drives a fulfil + verify stage afterward (TAA-36/
+ * 37/38's fulfilOrder/verify functions). Deliberately not a separate case
+ * "kind": they still need the wave scheduler and progress tracker exactly
+ * like the pipeline cases do, just with extra stages tacked on the end.
  *
  * NewStore SFS/OTC cases (7-8 in the design) live separately in
  * cases/newstoreCases.ts — they don't share this file's Shopify/Dynamo
@@ -51,6 +59,7 @@ function buildCases(store) {
             expectedDecrements: { [sku(0)]: { [primary]: 1 } },
             expectedRefundSkus: {},
             cleanupSkus: [],
+            fulfilment: false,
         },
         {
             kind: "pipeline",
@@ -62,6 +71,7 @@ function buildCases(store) {
             expectedDecrements: { [sku(1)]: { [primary]: 3 } },
             expectedRefundSkus: {},
             cleanupSkus: [],
+            fulfilment: false,
         },
         {
             kind: "pipeline",
@@ -81,6 +91,7 @@ function buildCases(store) {
             },
             expectedRefundSkus: {},
             cleanupSkus: [],
+            fulfilment: false,
         },
         {
             kind: "pipeline",
@@ -98,6 +109,7 @@ function buildCases(store) {
             },
             expectedRefundSkus: {},
             cleanupSkus: [],
+            fulfilment: false,
         },
         {
             kind: "pipeline",
@@ -109,6 +121,7 @@ function buildCases(store) {
             expectedDecrements: { [sku(7)]: {} }, // nothing to decrement
             expectedRefundSkus: { [sku(7)]: 1 },
             cleanupSkus: [sku(7)],
+            fulfilment: false,
         },
         {
             kind: "pipeline",
@@ -120,6 +133,37 @@ function buildCases(store) {
             expectedDecrements: { [sku(8)]: { [primary]: 1 } },
             expectedRefundSkus: { [sku(9)]: 1 },
             cleanupSkus: [sku(9)],
+            fulfilment: false,
+        },
+        {
+            kind: "pipeline",
+            name: "fulfil_single",
+            description: "One SKU, one shipment -> fulfilled end to end, tracking number lands in both AWS tables and Shopify's fulfilment matches the allocation (TAA-39)",
+            skuQuantities: { [sku(10)]: 1 },
+            seedPlan: { [sku(10)]: { [primary]: TOP_UP } },
+            expectedAllocation: { [sku(10)]: pNum },
+            expectedDecrements: { [sku(10)]: { [primary]: 1 } },
+            expectedRefundSkus: {},
+            cleanupSkus: [],
+            fulfilment: true,
+        },
+        {
+            kind: "pipeline",
+            name: "fulfil_split",
+            description: "Two shipments across two stores -> both fulfilled independently, each with its own tracking number and its own correctly-located Shopify fulfilment (TAA-39)",
+            skuQuantities: { [sku(11)]: 1, [sku(12)]: 1 },
+            seedPlan: {
+                [sku(11)]: { [primary]: TOP_UP },
+                [sku(12)]: { [secondary]: TOP_UP },
+            },
+            expectedAllocation: { [sku(11)]: pNum, [sku(12)]: sNum },
+            expectedDecrements: {
+                [sku(11)]: { [primary]: 1 },
+                [sku(12)]: { [secondary]: 1 },
+            },
+            expectedRefundSkus: {},
+            cleanupSkus: [],
+            fulfilment: true,
         },
     ];
     return Object.fromEntries(cases.map((c) => [c.name, c]));

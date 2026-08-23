@@ -14,6 +14,8 @@ import { injectSfsOrder, injectOtcOrder } from "./flows/newstoreOrders";
 import { DynamoClient } from "./clients/dynamo";
 import { ShopifyClient } from "./clients/shopify";
 import { NewStoreClient } from "./clients/newstore";
+import { FulfilmentClient } from "./clients/fulfilment";
+import { fulfilOrder } from "./flows/fulfilFlow";
 import {
   DynamoReader,
   allocationSummary,
@@ -39,6 +41,8 @@ import { assertAllocation, assertItemsRemoved, assertUnitCounts } from "./verify
 import { assertNoRefund, assertRefundForSkus } from "./verify/refunds";
 import { assertDecrements } from "./verify/inventory";
 import { assertNewStoreOrder } from "./verify/newstore";
+import { assertShipmentItemsFulfilled, assertShipmentTrackingNumber, assertOrderItemsFulfilled } from "./verify/fulfilment";
+import { assertAllocationReflection } from "./verify/allocation";
 
 export interface StageTiming {
   name: string;
@@ -157,7 +161,7 @@ export async function runCase(
 
   // TAA-14 Phase A step 4: live progress line, updated per poll tick.
   const hasRefund = Object.keys(caseDef.expectedRefundSkus).length > 0;
-  const caseStages = stageSequenceFor(hasRefund);
+  const caseStages = stageSequenceFor(hasRefund, caseDef.fulfilment);
   const printProgress = (stageName: string, secondsInStage: number): void => {
     if (!config.verbose || !progress) {
       return;
@@ -350,6 +354,60 @@ export async function runCase(
     );
     stageDone("inventory", inventory.elapsed);
 
+    // --- 8-10. Fulfil + verify (TAA-39: fulfil_single/fulfil_split only) ----
+    if (caseDef.fulfilment) {
+      t0 = Date.now();
+      const fulfilResult = await fulfilOrder(
+        { reader: dynamoReader, fulfilmentClient: new FulfilmentClient(), verbose: config.verbose },
+        config.store,
+        oidTail,
+      );
+      const notFulfilled = fulfilResult.shipments.filter((s) => s.status !== "FULFILLED");
+      if (notFulfilled.length > 0) {
+        throw new VerificationError(
+          "fulfilment.fulfil_call",
+          "FULFILLED",
+          notFulfilled,
+          `order ${oname}: ${notFulfilled.length} of ${fulfilResult.shipments.length} shipment(s) did not fulfil cleanly`,
+        );
+      }
+      stageDone("fulfil", (Date.now() - t0) / 1000);
+
+      const orderPk = fulfilResult.orderPk;
+      const fulfilmentVerify = await pollVerify(
+        async () => ({
+          items: await dynamoReader.getShipmentItemsByPk(orderPk),
+          summaries: await dynamoReader.getShipmentsByPk(orderPk),
+          orderRows: await dynamoReader.getOrderRows(config.store, oidTail),
+        }),
+        ({ items, summaries, orderRows }) => {
+          for (const shipment of fulfilResult.shipments) {
+            assertShipmentItemsFulfilled(items, shipment.shipmentId, oname);
+            const summary = summaries.find((s) => s.shipmentId === shipment.shipmentId) ?? null;
+            assertShipmentTrackingNumber(summary, shipment.shipmentId, oname);
+          }
+          assertOrderItemsFulfilled(orderRows, items, oname);
+        },
+        poll.fulfilment,
+        dynamoInterval,
+        "fulfilment_verify",
+        config.verbose,
+        (elapsed) => printProgress("fulfilment_verify", elapsed),
+      );
+      stageDone("fulfilment_verify", fulfilmentVerify.elapsed);
+
+      const allocationReflection = await pollVerify(
+        () => shopifyReader.getOrder(shopify, record.orderId),
+        (snap) => assertAllocationReflection(snap.fulfilments, fulfilmentVerify.value.items, config.store, oname),
+        poll.fulfilment,
+        shopifyInterval,
+        "allocation_reflection",
+        config.verbose,
+        (elapsed) => printProgress("allocation_reflection", elapsed),
+      );
+      stageDone("allocation_reflection", allocationReflection.elapsed);
+    }
+
     result.passed = true;
   } catch (error) {
     result.error = describeError(error);
@@ -460,7 +518,12 @@ export async function run(
   const resolvedTracker =
     tracker ??
     createProgressTracker(
-      buildRunPlan(pipelineNames, (name) => Object.keys(allCases[name].expectedRefundSkus).length > 0, totalRepeats),
+      buildRunPlan(
+        pipelineNames,
+        (name) => Object.keys(allCases[name].expectedRefundSkus).length > 0,
+        totalRepeats,
+        (name) => allCases[name].fulfilment,
+      ),
       totalRepeats,
       pipelineNames.length,
       Date.now(),

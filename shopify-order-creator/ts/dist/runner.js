@@ -51,6 +51,8 @@ const newstoreOrders_1 = require("./flows/newstoreOrders");
 const dynamo_1 = require("./clients/dynamo");
 const shopify_1 = require("./clients/shopify");
 const newstore_1 = require("./clients/newstore");
+const fulfilment_1 = require("./clients/fulfilment");
+const fulfilFlow_1 = require("./flows/fulfilFlow");
 const dynamoReader_1 = require("./readers/dynamoReader");
 const shopifyReader = __importStar(require("./readers/shopifyReader"));
 const newstoreReader = __importStar(require("./readers/newstoreReader"));
@@ -62,6 +64,8 @@ const shipments_1 = require("./verify/shipments");
 const refunds_1 = require("./verify/refunds");
 const inventory_1 = require("./verify/inventory");
 const newstore_2 = require("./verify/newstore");
+const fulfilment_2 = require("./verify/fulfilment");
+const allocation_1 = require("./verify/allocation");
 /**
  * Polls until verifyFn(value) stops throwing VerificationError. On timeout,
  * re-throws the final VerificationError (full evidence) rather than a bare
@@ -128,7 +132,7 @@ async function runCase(config, caseDef, progress) {
     };
     // TAA-14 Phase A step 4: live progress line, updated per poll tick.
     const hasRefund = Object.keys(caseDef.expectedRefundSkus).length > 0;
-    const caseStages = (0, progress_1.stageSequenceFor)(hasRefund);
+    const caseStages = (0, progress_1.stageSequenceFor)(hasRefund, caseDef.fulfilment);
     const printProgress = (stageName, secondsInStage) => {
         if (!config.verbose || !progress) {
             return;
@@ -272,6 +276,32 @@ async function runCase(config, caseDef, progress) {
         // --- 7. Inventory decremented exactly as expected -----------------------
         const inventory = await pollVerify(() => dynamo.snapshotInventory(skus), (after) => (0, inventory_1.assertDecrements)(before, after, caseDef.expectedDecrements, oname), poll.inventory, dynamoInterval, "inventory", config.verbose, (elapsed) => printProgress("inventory", elapsed));
         stageDone("inventory", inventory.elapsed);
+        // --- 8-10. Fulfil + verify (TAA-39: fulfil_single/fulfil_split only) ----
+        if (caseDef.fulfilment) {
+            t0 = Date.now();
+            const fulfilResult = await (0, fulfilFlow_1.fulfilOrder)({ reader: dynamoReader, fulfilmentClient: new fulfilment_1.FulfilmentClient(), verbose: config.verbose }, config.store, oidTail);
+            const notFulfilled = fulfilResult.shipments.filter((s) => s.status !== "FULFILLED");
+            if (notFulfilled.length > 0) {
+                throw new index_1.VerificationError("fulfilment.fulfil_call", "FULFILLED", notFulfilled, `order ${oname}: ${notFulfilled.length} of ${fulfilResult.shipments.length} shipment(s) did not fulfil cleanly`);
+            }
+            stageDone("fulfil", (Date.now() - t0) / 1000);
+            const orderPk = fulfilResult.orderPk;
+            const fulfilmentVerify = await pollVerify(async () => ({
+                items: await dynamoReader.getShipmentItemsByPk(orderPk),
+                summaries: await dynamoReader.getShipmentsByPk(orderPk),
+                orderRows: await dynamoReader.getOrderRows(config.store, oidTail),
+            }), ({ items, summaries, orderRows }) => {
+                for (const shipment of fulfilResult.shipments) {
+                    (0, fulfilment_2.assertShipmentItemsFulfilled)(items, shipment.shipmentId, oname);
+                    const summary = summaries.find((s) => s.shipmentId === shipment.shipmentId) ?? null;
+                    (0, fulfilment_2.assertShipmentTrackingNumber)(summary, shipment.shipmentId, oname);
+                }
+                (0, fulfilment_2.assertOrderItemsFulfilled)(orderRows, items, oname);
+            }, poll.fulfilment, dynamoInterval, "fulfilment_verify", config.verbose, (elapsed) => printProgress("fulfilment_verify", elapsed));
+            stageDone("fulfilment_verify", fulfilmentVerify.elapsed);
+            const allocationReflection = await pollVerify(() => shopifyReader.getOrder(shopify, record.orderId), (snap) => (0, allocation_1.assertAllocationReflection)(snap.fulfilments, fulfilmentVerify.value.items, config.store, oname), poll.fulfilment, shopifyInterval, "allocation_reflection", config.verbose, (elapsed) => printProgress("allocation_reflection", elapsed));
+            stageDone("allocation_reflection", allocationReflection.elapsed);
+        }
         result.passed = true;
     }
     catch (error) {
@@ -359,7 +389,7 @@ async function run(config = (0, config_1.defaultConfig)(), tracker, repeatIndex 
     const pipelineNames = names.filter((name) => allDefs[name].kind === "pipeline");
     const newStoreNames = names.filter((name) => allDefs[name].kind === "newstore");
     const resolvedTracker = tracker ??
-        (0, progress_1.createProgressTracker)((0, progress_1.buildRunPlan)(pipelineNames, (name) => Object.keys(allCases[name].expectedRefundSkus).length > 0, totalRepeats), totalRepeats, pipelineNames.length, Date.now());
+        (0, progress_1.createProgressTracker)((0, progress_1.buildRunPlan)(pipelineNames, (name) => Object.keys(allCases[name].expectedRefundSkus).length > 0, totalRepeats, (name) => allCases[name].fulfilment), totalRepeats, pipelineNames.length, Date.now());
     const pipelineResults = config.parallel
         ? await runCasesInWaves(config, pipelineNames, allCases, resolvedTracker, repeatIndex)
         : await runCasesSequentially(config, pipelineNames, allCases, resolvedTracker, repeatIndex);

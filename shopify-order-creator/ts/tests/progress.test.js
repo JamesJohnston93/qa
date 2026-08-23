@@ -27,6 +27,18 @@ test('stageSequenceFor: refund cases get an 8-stage sequence with refund+cleanup
   ]);
 });
 
+test('stageSequenceFor: a fulfilment case (TAA-39) gets fulfil/fulfilment_verify/allocation_reflection appended after inventory', () => {
+  assert.deepEqual(stageSequenceFor(false, true), [
+    'seed_inventory', 'create_order', 'shopify_readback', 'orders_table',
+    'allocation', 'no_refund', 'inventory', 'fulfil', 'fulfilment_verify', 'allocation_reflection',
+  ]);
+});
+
+test('stageSequenceFor: hasFulfilment defaults to false so existing 2-arg callers are unaffected', () => {
+  assert.deepEqual(stageSequenceFor(false), stageSequenceFor(false, false));
+  assert.deepEqual(stageSequenceFor(true), stageSequenceFor(true, false));
+});
+
 test('buildRunPlan repeats the full case list once per repeat, tagging refund vs not', () => {
   const plan = buildRunPlan(['single', 'undeliverable'], (name) => name === 'undeliverable', 2);
   assert.equal(plan.length, 4); // 2 cases x 2 repeats
@@ -35,6 +47,17 @@ test('buildRunPlan repeats the full case list once per repeat, tagging refund vs
   assert.equal(plan[1].stages.length, 8); // undeliverable: refund
   assert.equal(plan[2].repeatIndex, 1);
   assert.equal(plan[3].caseName, 'undeliverable');
+});
+
+test('buildRunPlan: hasFulfilmentFor tags a case with the 10-stage fulfilment sequence', () => {
+  const plan = buildRunPlan(['single', 'fulfil_single'], () => false, 1, (name) => name === 'fulfil_single');
+  assert.equal(plan[0].stages.length, 7); // single: no-refund, no fulfilment
+  assert.equal(plan[1].stages.length, 10); // fulfil_single: no-refund + fulfilment
+});
+
+test('buildRunPlan: hasFulfilmentFor defaults to "no case fulfils" for existing 3-arg callers', () => {
+  const plan = buildRunPlan(['single'], () => false, 1);
+  assert.equal(plan[0].stages.length, 7);
 });
 
 test('flattenPlan concatenates every case-repeat entry\'s stages in order', () => {

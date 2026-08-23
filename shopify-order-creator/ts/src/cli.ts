@@ -10,10 +10,10 @@ export function printHelp(): void {
 
 Options:
   --store <US|PS>         Target store (default: US)
-  --cases <name[,name]>   Comma-separated case names. Default set is all 8:
+  --cases <name[,name]>   Comma-separated case names. Default set is all 10:
                           single, multi, unique, split, undeliverable,
-                          partial_undeliverable (pipeline cases) and
-                          ns_sfs, ns_otc (NewStore cases).
+                          partial_undeliverable, fulfil_single, fulfil_split
+                          (pipeline cases) and ns_sfs, ns_otc (NewStore cases).
                           Use --list-cases for names + descriptions.
   --repeat <n>            Number of repeats (default: 1)
   --report-dir <path>     Output directory for reports (default: ./reports)
@@ -106,6 +106,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
     pipelineNames,
     (name) => Object.keys(allCases[name].expectedRefundSkus).length > 0,
     config.repeat,
+    (name) => allCases[name].fulfilment,
   );
   const tracker = createProgressTracker(plan, config.repeat, pipelineNames.length, Date.now());
 
