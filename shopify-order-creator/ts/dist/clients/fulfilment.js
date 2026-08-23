@@ -21,6 +21,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.FulfilmentClient = exports.FULFILLER = void 0;
 exports.buildFulfilPayload = buildFulfilPayload;
+exports.buildFulfilPayloadForShipment = buildFulfilPayloadForShipment;
 exports.formatFulfilledAt = formatFulfilledAt;
 const STAGING_HOST = "celmqip2md.execute-api.ap-southeast-2.amazonaws.com";
 const BRISBANE_TIME_ZONE = "Australia/Brisbane";
@@ -47,6 +48,23 @@ function buildFulfilPayload(shipmentId, itemIds, fulfiller, fulfilledAt) {
         fulfiller,
         fulfilled_at: fulfilledAt,
     };
+}
+/**
+ * Builds a fulfilment payload from a shipment's real item list (TAA-35) —
+ * one package per item, correct for any item count, so a 1-item and a
+ * 6-item shipment both come out right. `items` must all share the same
+ * shipmentId (the shape groupItemsByShipment's grouping already guarantees);
+ * that shared id becomes the payload's shipment_id.
+ */
+function buildFulfilPayloadForShipment(items, fulfiller, fulfilledAt) {
+    if (items.length === 0) {
+        throw new Error("buildFulfilPayloadForShipment requires at least one item");
+    }
+    const shipmentId = items[0].shipmentId;
+    if (!shipmentId) {
+        throw new Error("buildFulfilPayloadForShipment requires items already allocated to a shipment");
+    }
+    return buildFulfilPayload(shipmentId, items.map((item) => item.shipmentItemId), fulfiller, fulfilledAt);
 }
 /**
  * Formats a `Date` as `YYYY-MM-DD HH:MM:SS` in Australia/Brisbane, explicitly

@@ -47,6 +47,12 @@ export interface FulfilPayload {
   fulfilled_at: string;
 }
 
+/** The subset of ShipmentItem a fulfilment payload is built from. */
+export interface FulfilPayloadItem {
+  shipmentItemId: string;
+  shipmentId: string | null;
+}
+
 /**
  * One package per item — multi-item packages are legal per the contract but
  * not exercised here (JJ: "doesn't particularly matter at all for this").
@@ -69,6 +75,28 @@ export function buildFulfilPayload(
     fulfiller,
     fulfilled_at: fulfilledAt,
   };
+}
+
+/**
+ * Builds a fulfilment payload from a shipment's real item list (TAA-35) —
+ * one package per item, correct for any item count, so a 1-item and a
+ * 6-item shipment both come out right. `items` must all share the same
+ * shipmentId (the shape groupItemsByShipment's grouping already guarantees);
+ * that shared id becomes the payload's shipment_id.
+ */
+export function buildFulfilPayloadForShipment(
+  items: FulfilPayloadItem[],
+  fulfiller: string,
+  fulfilledAt: string,
+): FulfilPayload {
+  if (items.length === 0) {
+    throw new Error("buildFulfilPayloadForShipment requires at least one item");
+  }
+  const shipmentId = items[0].shipmentId;
+  if (!shipmentId) {
+    throw new Error("buildFulfilPayloadForShipment requires items already allocated to a shipment");
+  }
+  return buildFulfilPayload(shipmentId, items.map((item) => item.shipmentItemId), fulfiller, fulfilledAt);
 }
 
 /**

@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const {
   FulfilmentClient,
   buildFulfilPayload,
+  buildFulfilPayloadForShipment,
   formatFulfilledAt,
   FULFILLER,
 } = require('../dist/clients/fulfilment.js');
@@ -57,6 +58,55 @@ test('buildFulfilPayload retains the ITEM# prefix on items while shipment_id sta
     payload.package_composition[0].shipment_items[0].shipment_item_id,
     'ITEM#f8f9e240-b89a-46db-92e8-1a1483249997',
     'shipment_item_id must retain the ITEM# prefix verbatim',
+  );
+});
+
+function shipmentItem(shipmentItemId, shipmentId) {
+  return { shipmentItemId, shipmentId };
+}
+
+test('buildFulfilPayloadForShipment builds a correct payload for a single-item shipment', () => {
+  const items = [shipmentItem('ITEM#4579b9e1-338f-4d4b-94cf-14b28d40171c', '9b88cde5-9ba0-40b5-96f3-b69f74411326')];
+  const payload = buildFulfilPayloadForShipment(items, FULFILLER, '2026-06-30 01:00:00');
+
+  assert.equal(payload.shipment_id, '9b88cde5-9ba0-40b5-96f3-b69f74411326');
+  assert.equal(payload.package_composition.length, 1);
+  assert.equal(
+    payload.package_composition[0].shipment_items[0].shipment_item_id,
+    'ITEM#4579b9e1-338f-4d4b-94cf-14b28d40171c',
+  );
+});
+
+test('buildFulfilPayloadForShipment builds a correct payload for a many-item shipment (one package per item)', () => {
+  const items = [
+    shipmentItem('ITEM#a', 'ship-1'),
+    shipmentItem('ITEM#b', 'ship-1'),
+    shipmentItem('ITEM#c', 'ship-1'),
+    shipmentItem('ITEM#d', 'ship-1'),
+    shipmentItem('ITEM#e', 'ship-1'),
+    shipmentItem('ITEM#f', 'ship-1'),
+  ];
+  const payload = buildFulfilPayloadForShipment(items, FULFILLER, '2026-06-30 01:00:00');
+
+  assert.equal(payload.shipment_id, 'ship-1');
+  assert.equal(payload.package_composition.length, 6, 'payload item count must match input item count');
+  assert.deepEqual(
+    payload.package_composition.map((pkg) => pkg.shipment_items[0].shipment_item_id),
+    ['ITEM#a', 'ITEM#b', 'ITEM#c', 'ITEM#d', 'ITEM#e', 'ITEM#f'],
+  );
+});
+
+test('buildFulfilPayloadForShipment throws if given an item not yet allocated to a shipment', () => {
+  assert.throws(
+    () => buildFulfilPayloadForShipment([shipmentItem('ITEM#a', null)], FULFILLER, '2026-06-30 01:00:00'),
+    /requires items already allocated to a shipment/,
+  );
+});
+
+test('buildFulfilPayloadForShipment throws on an empty item list', () => {
+  assert.throws(
+    () => buildFulfilPayloadForShipment([], FULFILLER, '2026-06-30 01:00:00'),
+    /requires at least one item/,
   );
 });
 

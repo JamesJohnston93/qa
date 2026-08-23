@@ -44,6 +44,8 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.DynamoReader = exports.REMOVED = exports.UNDELIVERABLE = void 0;
 exports.orderSkuQuantitiesFromRows = orderSkuQuantitiesFromRows;
 exports.orderPkFromRows = orderPkFromRows;
+exports.shipmentSummariesFromRows = shipmentSummariesFromRows;
+exports.groupItemsByShipment = groupItemsByShipment;
 exports.allocationSummary = allocationSummary;
 const lib_dynamodb_1 = require("@aws-sdk/lib-dynamodb");
 const ORIGIN_INDEX = "origin_index";
@@ -90,6 +92,52 @@ function orderPkFromRows(rows) {
     }
     const orderRow = rows.find((row) => row.SK === "ORDER");
     return String((orderRow ?? rows[0]).PK);
+}
+/**
+ * SHIPMENT# rows -> ShipmentSummary[]. Pure — offline-testable, and lets
+ * getShipmentsByPk and getShipmentItemsByPk derive their views from the same
+ * fetched rows instead of each re-querying staging-shipments.
+ */
+function shipmentSummariesFromRows(rows) {
+    const summaries = [];
+    for (const row of rows) {
+        const sk = String(row.SK ?? "");
+        if (!sk.startsWith("SHIPMENT#")) {
+            continue;
+        }
+        summaries.push({
+            shipmentId: sk.slice("SHIPMENT#".length),
+            allocatedStore: row.allocatedStore ? String(row.allocatedStore) : null,
+            status: row.status ? String(row.status) : null,
+            trackingNumber: row.trackingNumber ? String(row.trackingNumber) : null,
+            carrier: row.carrier ? String(row.carrier) : null,
+            pendingAction: row.pendingAction ? String(row.pendingAction) : null,
+            raw: row,
+        });
+    }
+    return summaries;
+}
+/**
+ * Groups a shipment's items by the shipmentId they were allocated to — the
+ * shape a fulfilment payload is built from (TAA-35). Items not yet
+ * allocated (shipmentId === null) carry no shipment to group under and are
+ * excluded. Pure — offline-testable.
+ */
+function groupItemsByShipment(items) {
+    const grouped = new Map();
+    for (const item of items) {
+        if (item.shipmentId === null) {
+            continue;
+        }
+        const group = grouped.get(item.shipmentId);
+        if (group) {
+            group.push(item);
+        }
+        else {
+            grouped.set(item.shipmentId, [item]);
+        }
+    }
+    return grouped;
 }
 class DynamoReader {
     dynamo;
@@ -139,12 +187,7 @@ class DynamoReader {
      * allocation tick re-querying staging-orders-v2 just to re-derive it.
      */
     async getShipmentItemsByPk(pk) {
-        const result = await this.dynamo.doc.send(new lib_dynamodb_1.QueryCommand({
-            TableName: this.config.shipmentsTable,
-            KeyConditionExpression: "PK = :pk",
-            ExpressionAttributeValues: { ":pk": pk },
-        }));
-        const rows = result.Items ?? [];
+        const rows = await this.queryShipmentRows(pk);
         const shipmentsById = new Map();
         for (const row of rows) {
             const sk = String(row.SK ?? "");
@@ -159,12 +202,13 @@ class DynamoReader {
                 continue; // shipment-level or transaction row, not an item row
             }
             const status = String(row.status ?? "");
+            const shipmentId = row.shipmentId ? String(row.shipmentId) : null;
             let allocatedStore = null;
             if (status === exports.UNDELIVERABLE) {
                 allocatedStore = exports.UNDELIVERABLE;
             }
-            else if (row.shipmentId) {
-                const shipment = shipmentsById.get(String(row.shipmentId));
+            else if (shipmentId) {
+                const shipment = shipmentsById.get(shipmentId);
                 const value = shipment?.allocatedStore;
                 allocatedStore = value ? String(value) : null;
             }
@@ -173,10 +217,32 @@ class DynamoReader {
                 store: allocatedStore,
                 status,
                 rejectedStores: row.rejectedStores ?? [],
+                shipmentItemId: sk,
+                shipmentId,
                 raw: row,
             });
         }
         return items;
+    }
+    /**
+     * SHIPMENT# rows for an order, for a PK already resolved by the caller —
+     * same shape of call as getShipmentItemsByPk (TAA-35 scope addition,
+     * 2026-08-21). The row is already fetched by getShipmentItemsByPk on every
+     * run; this is a separate entry point for callers that only need the
+     * shipment-level fields (status/trackingNumber/carrier/pendingAction),
+     * not the per-item view.
+     */
+    async getShipmentsByPk(pk) {
+        const rows = await this.queryShipmentRows(pk);
+        return shipmentSummariesFromRows(rows);
+    }
+    async queryShipmentRows(pk) {
+        const result = await this.dynamo.doc.send(new lib_dynamodb_1.QueryCommand({
+            TableName: this.config.shipmentsTable,
+            KeyConditionExpression: "PK = :pk",
+            ExpressionAttributeValues: { ":pk": pk },
+        }));
+        return result.Items ?? [];
     }
 }
 exports.DynamoReader = DynamoReader;

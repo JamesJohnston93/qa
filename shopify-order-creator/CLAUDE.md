@@ -3,7 +3,7 @@
 TypeScript CLI + regression harness (`ts/`) for placing test orders on Universal Store / Perfect Stranger **staging** and verifying omni-channel alignment across Shopify, AWS (DynamoDB), and NewStore. Two entry points from the same build: `node dist/index.js order ...` places one ad-hoc test order on demand (TAA-15); `node dist/index.js` with no subcommand runs the automated regression suite (TAA-13/14/17).
 
 **Owner:** JJ (james.johnston@universalstore.com.au). Tool originally by Jared Davis (as a Python CLI — see "TS rewrite complete" below).
-**Tracking:** Jira project TAA (current: TAA-21 fulfilment — slice A **TAA-34 done, live-confirmed 2026-08-21**; slice B **TAA-35** next; TAA-40 owns the outstanding PS live run; TAA-31/32/33 queued behind TAA-21). Docs: Confluence QD space → "QA Automation Tool" page tree — see `regression-package-design.md` and `scope-of-work-reworked.md` in this folder, and `qa-order-cli-tool-documentation.md` for the `order` command's user-facing docs.
+**Tracking:** Jira project TAA (current: TAA-21 fulfilment — slices A **TAA-34** and B **TAA-35** done, live-confirmed; **TAA-41** re-test done, confirmed a real backend gap (2026-08-23); slice C **TAA-36** next; TAA-40 owns the outstanding PS live run; TAA-31/32/33 queued behind TAA-21). Docs: Confluence QD space → "QA Automation Tool" page tree — see `regression-package-design.md` and `scope-of-work-reworked.md` in this folder, and `qa-order-cli-tool-documentation.md` for the `order` command's user-facing docs.
 
 ## TAA-34 sign-off (2026-08-21) — fulfilment slice A live-confirmed, two contract deviations found
 
@@ -74,6 +74,12 @@ have been unsettled values, so "silently overwriting" is also unconfirmed.
 settled, *then* re-fire. Until that lands, treat "the backend does not guard
 against re-fulfilment" as an open question, not a finding.
 
+**⚠ TAA-41 has now settled this (2026-08-23) — Finding 2 is CONFIRMED, not a
+race.** See the TAA-41 sign-off below for the full re-test. Short version: a
+shipment already `FULFILLED` for two full days still returned 200 on re-fire
+and silently issued a fresh Auspost label, overwriting `trackingNumber` on
+the row. There is no guard, lagging or otherwise.
+
 **⚠ Correction to Finding 1 (JJ, 2026-08-21).** The conclusion is right — the
 tracking number lives only on the shipment row — but the method used to
 establish it was a **single hand-read at an unrecorded moment**, and the same
@@ -94,16 +100,24 @@ automated. The rules from here:
    `label_dimensions` and nothing else useful.
 2. **Always poll, never read once.** `waitForShipmentFulfilled(orderPk,
    shipmentId)` polls until `status === FULFILLED` **and** `trackingNumber` is
-   present. Window **90s** at a 2s interval — 3x the observed ~30s lag, and
-   inside TAA-37's proposed 150s `fulfilment` stage window.
-3. **`DynamoReader` currently discards almost everything on the `SHIPMENT#`
-   row** — it indexes those rows only to read `allocatedStore`
-   (`readers/dynamoReader.ts:177-178`). It needs `status`, `trackingNumber`,
-   `carrier` and `pendingAction` surfaced too. The row is already fetched on
-   every run, so this is a widening, not a new query.
-4. **Check shipment status before calling fulfil.** Whether or not the backend
-   guards against a re-fire (open, see TAA-41), the harness should not depend
-   on it: read the row, skip or fail if it is already `FULFILLED`.
+   present. Window **90s** at a 2s interval — measured live at 6.5-9.0s
+   (TAA-41, 2026-08-23, n=2), so 90s is now a ~10-14x margin rather than the
+   ~3x it was sized as against the original ~30s estimate. Kept at 90s
+   rather than shrunk — cheap insurance, two samples isn't enough to tighten
+   it. Also note: `trackingNumber` was observed landing on the row *before*
+   `status` flips to `FULFILLED` in both measured runs — poll for both
+   conditions together (as written), never treat `trackingNumber` alone as
+   sufficient.
+3. **Done (TAA-35, 2026-08-21/23).** `DynamoReader.getShipmentsByPk` now
+   surfaces `status`, `trackingNumber`, `carrier` and `pendingAction`
+   alongside `allocatedStore` (`ShipmentSummary`, `readers/dynamoReader.ts`)
+   — the row was already fetched on every run, this was a widening, not a
+   new query.
+4. **Check shipment status before calling fulfil.** Confirmed necessary, not
+   optional — TAA-41 (2026-08-23) proved the backend does **not** guard
+   against a re-fire, even on a shipment settled for two days. The harness
+   cannot rely on the endpoint; it must read the row itself and skip or fail
+   if it is already `FULFILLED`. Mandatory for TAA-36.
 5. **Two different waits, don't conflate them.** *Item settling* happens before
    fulfil — allocation writes the `SHIPMENT#` row first, then `ITEM#` rows one
    at a time, so the payload's item count must settle first. *Fulfilment
@@ -111,27 +125,133 @@ automated. The rules from here:
 6. **Treat a shipment id as single-use.** Every live attempt burns a real
    staging Auspost label whether or not it was needed.
 
-## ⚠ NEXT SESSION — TAA-41 RE-TEST FIRST, THEN TAA-35 (fulfilment slice B)
+## TAA-41 sign-off (2026-08-23) — Finding 2 confirmed real, settle time measured
 
-**Job 1 — TAA-41, the double-fulfil re-test.** Settle the open question above
-before anything is built on top of it. Order **#9924** is already placed and
-allocated for exactly this. Fulfil it, poll the shipment row until
-`status === FULFILLED` and `trackingNumber` is present, record how long that
-actually took, then re-fire the same shipment. A 400 means Finding 2 was a
-race and three docs need correcting. A 200 means it is a real backend finding
-worth raising. Either way, record the measured settle time — the 90s poll
-window is derived from an estimate, and this is the chance to replace it with
-data.
+**Continuation note:** call #1 on the designated spare order **#9924**
+(shipment `9b88cde5-9ba0-40b5-96f3-b69f74411326`) was fired by an earlier,
+interrupted session at **2026-08-21T11:13:21Z** — visible from the row's
+`fulfilledAt`. That session ended before it could poll for settlement, so no
+settle-time measurement exists for that call. By the time this session
+resumed (2026-08-23), the row had been sitting `FULFILLED` for two days —
+too stale to measure a settle time from, but exactly the "demonstrably
+settled, not a guessed wait" condition the ticket asks for re-firing against.
+Used it for the double-fulfil test below, and placed two fresh spare orders
+(#9926, #9927) to get a clean settle-time measurement instead.
 
-**Job 2 — TAA-35, slice B.** Build the shipment payload from a shipment's real
-DynamoDB rows instead of hand-typed ids — "any item count" per the slice table
-below. Read TAA-35's own ticket for the contract; don't re-read TAA-36..39,
-each is its own session. Widen the reader for the shipment-row fields listed
-in rule 3 above while you are in there — the row is already in hand.
+**Double-fulfil re-test — CONFIRMED, not a race.** Re-fired the identical
+payload against shipment `9b88cde5-9ba0-40b5-96f3-b69f74411326`, settled for
+two full days:
+- Call #2 (2026-08-23T11:21:53Z): **200**, `{code:200, message:"success",
+  data:{label_url, label_dimensions}}`. The shipment row's `trackingNumber`
+  silently changed from `111JD885255401000931503` to
+  `111JD885843801000931500` — a genuinely new Auspost label issued against
+  an already-`FULFILLED` shipment.
+- Waited 60s, call #3 (2026-08-23T11:23:47Z): **200** again, another fresh
+  label (`111JD885255401000931503` → `...401000931500` → `...401000931500`
+  chain continues; not re-captured, not needed — the point is proven).
+- **Conclusion: there is no guard at all**, lagging or otherwise. TAA-34's
+  original Finding 2 is correct; the "was it a race" doubt raised in this
+  file and on TAA-34's ticket is resolved in Finding 2's favor. Per JJ's
+  standing instruction, **not raised as a separate defect ticket** — logged
+  here for his own triage. TAA-36 must treat the pre-fulfil Dynamo status
+  check as mandatory, not optional, since the endpoint provides no
+  protection whatsoever.
 
-Carry the corrected findings forward: the fulfil response never contains a
-tracking number, the row lags ~30s behind the call, and whether double-fulfil
-is backend-guarded is **unknown** until TAA-41 answers it.
+**Settle-time measurement — done on fresh spares, not #9924.** Two
+single-item orders placed and fulfilled end to end (#9926 shipment
+`674c94e0-a17c-4b52-a6fd-62c529590e4a`, #9927 shipment
+`7533b4e5-f048-4f16-8c47-e0d8058e2205`), polling `getShipmentsByPk` at a 2s
+interval from the moment the fulfil call returned 200:
+- #9926: settled (status `FULFILLED` + `trackingNumber` present) at **+9.0s**.
+- #9927: settled at **+6.5s**.
+- Both times, `trackingNumber` was already present on the very first poll
+  (~2.4-3.0s after the call, while `status` still read `OPEN`) — the two
+  fields do not land together. `status` flipping to `FULFILLED` was the
+  later of the two in both runs. This confirms the design decision to poll
+  for **both** conditions, not `trackingNumber` alone.
+- **Measured settle time: ~6.5-9.0s (n=2).** The ~30s figure used
+  everywhere in this file was JJ's from-experience estimate, not a
+  measurement — real staging behaviour today is 3-5x faster than that. n=2
+  is thin; the 90s poll window and TAA-37's proposed 150s stage window are
+  both kept as-is (now a much wider safety margin than originally sized for)
+  rather than shrunk on two samples. All `~30s` / "open question" language
+  in this file has been corrected in place above to point here.
+
+TAA-41 ticket updated with this finding, acceptance criteria ticked, status
+→ Done.
+
+## TAA-35 sign-off (2026-08-23) — fulfilment slice B, live-confirmed
+
+**Build — done.** `ShipmentItem` (`readers/dynamoReader.ts`) widened with
+`shipmentItemId` (`ITEM#` prefix retained) and `shipmentId` (bare uuid, null
+until allocated). Pure `groupItemsByShipment(items)` groups by `shipmentId`,
+excluding unallocated items. `buildFulfilPayloadForShipment` (
+`clients/fulfilment.ts`) builds a payload from a shipment's real
+`FulfilPayloadItem[]` at any item count — one package per item, throws on an
+empty list or on items not yet allocated. Scope addition from the same
+ticket: `getShipmentsByPk`/`shipmentSummariesFromRows` surface `status`,
+`trackingNumber`, `carrier`, `pendingAction` alongside the pre-existing
+`allocatedStore` (`ShipmentSummary`) — reusing the same `SHIPMENT#` rows
+`getShipmentItemsByPk` already fetches, via a shared private
+`queryShipmentRows` helper, not a second query.
+
+**Offline tests — done.** New coverage in `tests/dynamoReader.test.js`
+(SHIPMENT# extraction and prefix-stripping, all four new fields populated,
+and — the ticket's explicit ask — `trackingNumber` reading as `null` in the
+pre-fulfilment state where the attribute is absent from the row; grouping
+splits a mixed set and excludes unallocated items) and
+`tests/fulfilment.test.js` (single-item and 6-item payloads, empty-list and
+unallocated-item error cases). `npm run build` + `npm test`: **192/192
+green** (183 baseline + 9 new).
+
+**Live confirm — done, multi-item.** Placed order **#9928** (`32625134` x2,
+one shipment, 2 items) and fulfilled it entirely through the new code path —
+`getShipmentItemsByPk` → `groupItemsByShipment` → `buildFulfilPayloadForShipment`,
+zero hand-typed ids. Shipment `23648494-6c65-4241-aada-92cc2709979e` → **200**,
+payload correctly built as two packages (one per item), each `shipment_item_id`
+pulled straight from the row's `SK`. This is also the live proof for TAA-41's
+mandatory pre-fulfil check finding above: the payload builder itself has no
+opinion on whether a shipment is already fulfilled — that check has to live
+in the caller (TAA-36).
+
+TAA-35 ticket updated, checklist (both the original scope and the 2026-08-21
+scope addition) ticked, status → Done.
+
+## ⚠ NEXT SESSION — TAA-36 (fulfilment slice C)
+
+**TAA-36 — one command fulfils a whole order end to end.** This is where
+the CLI gains Dynamo access (order lookup by Shopify id, item-count settle
+wait, then fulfil). Read TAA-36's own ticket for the contract; don't re-read
+TAA-37..39, each is its own session.
+
+Two things TAA-41 makes non-negotiable for this slice, both confirmed live
+2026-08-23 (see sign-off above):
+
+1. **The pre-fulfil Dynamo status check is mandatory, not optional.** The
+   backend provides zero protection against re-fulfilling an already-
+   `FULFILLED` shipment — confirmed by re-firing a shipment settled for two
+   full days and getting a fresh 200 + a silently overwritten
+   `trackingNumber` both times. TAA-36 must read the shipment row and
+   skip/fail before ever calling `/staging/fulfil` on one that's already
+   `FULFILLED`.
+2. **`waitForShipmentFulfilled` needs both `status === FULFILLED` AND
+   `trackingNumber` present, checked together** — measured live, the two
+   fields do not land at the same time (`trackingNumber` arrived first in
+   both measured runs, ~2.4-3.0s after the call; `status` flipped later, at
+   6.5-9.0s). Never treat either field alone as sufficient.
+
+The reader now has everything TAA-36 needs already exposed:
+`getShipmentItemsByPk` → `ShipmentItem[]` (with `shipmentItemId`/
+`shipmentId`), `groupItemsByShipment`, `getShipmentsByPk` → `ShipmentSummary[]`
+(`status`/`trackingNumber`/`carrier`/`pendingAction`/`allocatedStore`), and
+`buildFulfilPayloadForShipment`. TAA-36 is wiring these into one CLI command
+plus the settle-wait polling helpers (item-count settle before fulfil,
+fulfilment settle after — two different waits per rule 5 above, don't
+collapse them), not building new Dynamo access from scratch.
+
+Poll window starting points from measured data: fulfilment settle ~6.5-9.0s
+(n=2) against a 90s window; item-count settle not yet measured — TAA-36 is
+the first slice to actually need that wait timed.
 
 **Deferred, still owned by TAA-40:** `--store PS --parallel --repeat 3`. It is
 TAA-22's last unticked acceptance item *and* the only live confirmation of the
@@ -200,16 +320,18 @@ Payload facts worth not re-deriving:
   400 = failure with a message worth surfacing ("can't fulfill shipment with
   status fulfilled", "shipment is on hold", "contact dev support"). Carry the
   response body into the thrown error.
-- **The shipment row lags the call by ~30s** (JJ, confirmed from experience).
-  `trackingNumber` and the `FULFILLED` status are not readable immediately
-  after the 200 — poll, never read once. See "How the harness must read
-  fulfilment state" above.
-- **Open question, not a finding:** whether an already-fulfilled shipment is
-  ever rejected. TAA-34 re-fired the same shipment 3x within ~90s and got 200
-  every time, but that test was timing-blind and may have been racing the ~30s
-  row write. **TAA-41** re-tests it properly. Until then, don't assume either
-  way — and regardless of the answer, the harness should check shipment status
-  in Dynamo before calling fulfil rather than relying on the backend.
+- **The shipment row lags the call by ~6-9s** (measured live, TAA-41,
+  2026-08-23, n=2: 9.0s and 6.5s from call to `status === FULFILLED` +
+  `trackingNumber` present — supersedes the earlier ~30s estimate from
+  experience). `trackingNumber` and the `FULFILLED` status are not readable
+  immediately after the 200 — poll, never read once. See "How the harness
+  must read fulfilment state" above.
+- **Resolved, no longer open — the backend does not guard against
+  re-fulfilling an already-`FULFILLED` shipment, confirmed (TAA-41,
+  2026-08-23).** Re-firing a shipment that had been settled for two days
+  still returned 200 and silently issued a new Auspost label. The harness
+  must check shipment status in Dynamo before calling fulfil — the backend
+  will not stop a wrongful re-fire.
 
 **Item settling — a case-design consideration, not a defect.** Allocation
 writes the `SHIPMENT#` row first, then updates `ITEM#` rows one at a time. The
@@ -230,12 +352,15 @@ computed in three places (`runner.ts:159`, `runner.ts:463`, `cli.ts:107`).
 
 Poll windows proposed: `fulfilment` 150s (TAA-37). Deliberately not 300s —
 JJ's ">5 min = probable bug" threshold is a triage signal, not a wait-it-out
-budget. Tune from live data.
+budget. Tune from live data. **Measured (TAA-41, 2026-08-23, n=2): 6.5-9.0s
+settle time** — 150s is now a ~17-23x margin. Kept as proposed rather than
+shrunk on two samples; revisit with more data if TAA-37 wants a tighter
+window.
 
 **Fulfilment is irreversible on staging** (same class as `zeroEverywhere`) and
-a 200 produces a real Auspost staging shipment. Whether it guards against
-re-fulfilling the same shipment is an open question (TAA-41) — assume it does
-not, and don't re-fire. Repeat runs need fresh orders — have a couple of spare
+a 200 produces a real Auspost staging shipment. **Confirmed (TAA-41,
+2026-08-23): it does not guard against re-fulfilling the same shipment** —
+don't re-fire. Repeat runs need fresh orders — have a couple of spare
 allocated orders ready.
 
 ## Board split made 2026-08-07 (JJ's calls)
