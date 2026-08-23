@@ -1,0 +1,67 @@
+{
+  "store": "US",
+  "timestamp": "20260823T123621Z",
+  "repeat": 1,
+  "passed": true,
+  "repeatConsistent": true,
+  "variance": {},
+  "runs": [
+    {
+      "store": "US",
+      "cases": [
+        {
+          "case": "fulfil_single",
+          "store": "US",
+          "description": "One SKU, one shipment -> fulfilled end to end, tracking number lands in both AWS tables and Shopify's fulfilment matches the allocation (TAA-39)",
+          "passed": true,
+          "orderId": "gid://shopify/Order/7881524052241",
+          "orderName": "#9940",
+          "stages": [
+            {
+              "name": "seed_inventory",
+              "elapsed": 0.9
+            },
+            {
+              "name": "create_order",
+              "elapsed": 5.4
+            },
+            {
+              "name": "shopify_readback",
+              "elapsed": 0.3
+            },
+            {
+              "name": "orders_table",
+              "elapsed": 11.8
+            },
+            {
+              "name": "allocation",
+              "elapsed": 26.9
+            },
+            {
+              "name": "no_refund",
+              "elapsed": 0
+            },
+            {
+              "name": "inventory",
+              "elapsed": 0
+            },
+            {
+              "name": "fulfil",
+              "elapsed": 6.3
+            },
+            {
+              "name": "fulfilment_verify",
+              "elapsed": 6.3
+            },
+            {
+              "name": "allocation_reflection",
+              "elapsed": 0.5
+            }
+          ],
+          "error": null
+        }
+      ],
+      "passed": true
+    }
+  ]
+}

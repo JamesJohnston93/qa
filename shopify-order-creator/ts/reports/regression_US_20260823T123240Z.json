@@ -1,0 +1,121 @@
+{
+  "store": "US",
+  "timestamp": "20260823T123240Z",
+  "repeat": 1,
+  "passed": false,
+  "repeatConsistent": true,
+  "variance": {},
+  "runs": [
+    {
+      "store": "US",
+      "cases": [
+        {
+          "case": "fulfil_single",
+          "store": "US",
+          "description": "One SKU, one shipment -> fulfilled end to end, tracking number lands in both AWS tables and Shopify's fulfilment matches the allocation (TAA-39)",
+          "passed": false,
+          "orderId": "gid://shopify/Order/7881507602705",
+          "orderName": "#9938",
+          "stages": [
+            {
+              "name": "seed_inventory",
+              "elapsed": 1.1
+            },
+            {
+              "name": "create_order",
+              "elapsed": 13.2
+            },
+            {
+              "name": "shopify_readback",
+              "elapsed": 0.4
+            },
+            {
+              "name": "orders_table",
+              "elapsed": 21.8
+            },
+            {
+              "name": "allocation",
+              "elapsed": 52.1
+            },
+            {
+              "name": "no_refund",
+              "elapsed": 0
+            },
+            {
+              "name": "inventory",
+              "elapsed": 0
+            },
+            {
+              "name": "fulfil",
+              "elapsed": 10.6
+            },
+            {
+              "name": "fulfilment_verify",
+              "elapsed": 11.4
+            }
+          ],
+          "error": {
+            "check": "allocation.fulfilment_alignment",
+            "expected": {
+              "33837352": 1
+            },
+            "actual": [],
+            "detail": "order #9938, shipment 9c13ff5c-771b-4975-9299-5ca230c34095: no Shopify fulfilment matches this shipment's SKU/unit composition"
+          }
+        },
+        {
+          "case": "fulfil_split",
+          "store": "US",
+          "description": "Two shipments across two stores -> both fulfilled independently, each with its own tracking number and its own correctly-located Shopify fulfilment (TAA-39)",
+          "passed": true,
+          "orderId": "gid://shopify/Order/7881512943889",
+          "orderName": "#9939",
+          "stages": [
+            {
+              "name": "seed_inventory",
+              "elapsed": 1.2
+            },
+            {
+              "name": "create_order",
+              "elapsed": 8.4
+            },
+            {
+              "name": "shopify_readback",
+              "elapsed": 0.4
+            },
+            {
+              "name": "orders_table",
+              "elapsed": 16.7
+            },
+            {
+              "name": "allocation",
+              "elapsed": 47
+            },
+            {
+              "name": "no_refund",
+              "elapsed": 0
+            },
+            {
+              "name": "inventory",
+              "elapsed": 0.1
+            },
+            {
+              "name": "fulfil",
+              "elapsed": 19.4
+            },
+            {
+              "name": "fulfilment_verify",
+              "elapsed": 67.6
+            },
+            {
+              "name": "allocation_reflection",
+              "elapsed": 0.4
+            }
+          ],
+          "error": null
+        }
+      ],
+      "passed": false
+    }
+  ]
+}
