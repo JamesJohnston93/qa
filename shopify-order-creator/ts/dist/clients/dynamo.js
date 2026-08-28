@@ -10,6 +10,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.DynamoClient = void 0;
 exports.chunk = chunk;
+exports.planTargetedZero = planTargetedZero;
 const client_dynamodb_1 = require("@aws-sdk/client-dynamodb");
 const credential_providers_1 = require("@aws-sdk/credential-providers");
 const lib_dynamodb_1 = require("@aws-sdk/lib-dynamodb");
@@ -22,6 +23,21 @@ function chunk(items, size) {
         out.push(items.slice(i, i + size));
     }
     return out;
+}
+/**
+ * Pure planning for the "audited targeted-zero" seed (TAA-31 slice E): zero
+ * only the locations an audit finds holding nonzero stock, except one
+ * designated store — never a blanket write to every existing row the way
+ * `zeroEverywhere` does. Proposed in `ts/signoffs/TAA-31-slice-a.md` for the
+ * reject -> undeliverable case, where the SKU in question is shared across
+ * this whole workstream's live trials and a blanket zero is unnecessary cost,
+ * not a correctness requirement. `keepStore` is excluded from the zero list
+ * even if it's currently 0 — `zeroExceptStore` sets it to `keepQuantity`
+ * unconditionally afterward regardless of its starting value.
+ */
+function planTargetedZero(locations, keepStore, keepQuantity) {
+    const zero = locations.filter((loc) => loc.quantity > 0 && loc.store !== keepStore).map((loc) => loc.store);
+    return { zero, keep: { store: keepStore, quantity: keepQuantity } };
 }
 class DynamoClient {
     config;
@@ -100,6 +116,22 @@ class DynamoClient {
         for (const batch of chunk(locations, ZERO_BATCH_SIZE)) {
             await Promise.all(batch.map((location) => this.setStock(sku, 0, location.store)));
         }
+    }
+    /**
+     * Audited targeted-zero (TAA-31 slice E, see `planTargetedZero`): zeroes
+     * only the nonzero locations an audit finds for this SKU, except
+     * `keepStore`, which is set to `keepQuantity`. Bounds the write count to
+     * however many locations actually hold stock, rather than `zeroEverywhere`'s
+     * every-existing-row sweep. Returns the plan it executed, for logging.
+     */
+    async zeroExceptStore(sku, keepStore, keepQuantity) {
+        const locations = await this.getAllLocationsForSku(sku);
+        const plan = planTargetedZero(locations, keepStore, keepQuantity);
+        for (const batch of chunk(plan.zero, ZERO_BATCH_SIZE)) {
+            await Promise.all(batch.map((store) => this.setStock(sku, 0, store)));
+        }
+        await this.setStock(sku, plan.keep.quantity, plan.keep.store);
+        return plan;
     }
     /** Current quantity at every existing location for each SKU. */
     async snapshotInventory(skus) {
