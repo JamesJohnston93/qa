@@ -7,23 +7,38 @@
 
 export const STAGE_FALLBACK_SECONDS = 9; // ~65s end-to-end / ~7.5 stages per case (TAA-14 ticket baseline)
 
+export type RejectMode = "reallocate" | "undeliverable" | undefined;
+
 /**
  * The stage names a case runs through, in order — varies by refund vs
- * no-refund path, and by whether the case also drives a fulfilment (TAA-39:
- * fulfil_single/fulfil_split). This list is hand-maintained, NOT derived from
- * runner.ts's actual stageDone() calls — any new stage runner.ts adds must be
- * added here too, or run progress/ETA silently drift out of sync with what's
- * actually happening.
+ * no-refund path, by whether the case also drives a fulfilment (TAA-39:
+ * fulfil_single/fulfil_split), and now by whether it drives a reject (TAA-31:
+ * reject_reallocate/reject_undeliverable). This list is hand-maintained, NOT
+ * derived from runner.ts's actual stageDone() calls — any new stage
+ * runner.ts adds must be added here too, or run progress/ETA silently drift
+ * out of sync with what's actually happening.
+ *
+ * `rejectMode: "reallocate"` inserts `reject_seed` (the mid-flight backup-
+ * store top-up slice D's design needs, since ambient real stock for this
+ * SKU is too thin to trust) and `reject` before the refund branch, and
+ * SKIPS `inventory` entirely — the mid-flight top-up perturbs the
+ * before/after snapshot `assertDecrements` compares, so this case doesn't
+ * run that check (see `ts/signoffs/TAA-31-slice-f.md`). `rejectMode:
+ * "undeliverable"` inserts only `reject` (no mid-flight seed — slice E's
+ * audited targeted-zero happens entirely in `seed_inventory`) and keeps
+ * `inventory`, since nothing moves between stores after the reject.
  */
-export function stageSequenceFor(hasRefund: boolean, hasFulfilment = false): string[] {
+export function stageSequenceFor(hasRefund: boolean, hasFulfilment = false, rejectMode: RejectMode = undefined): string[] {
+  const rejectStages = rejectMode === "reallocate" ? ["reject_seed", "reject"] : rejectMode === "undeliverable" ? ["reject"] : [];
   return [
     "seed_inventory",
     "create_order",
     "shopify_readback",
     "orders_table",
     "allocation",
+    ...rejectStages,
     ...(hasRefund ? ["refund", "cleanup"] : ["no_refund"]),
-    "inventory",
+    ...(rejectMode === "reallocate" ? [] : ["inventory"]),
     ...(hasFulfilment ? ["fulfil", "fulfilment_verify", "allocation_reflection"] : []),
   ];
 }
@@ -37,15 +52,16 @@ export interface RunPlanEntry {
 
 /**
  * The full ordered stage plan for a run: every case, every repeat.
- * `hasFulfilmentFor` defaults to "no case fulfils" so existing callers (and
- * offline tests) that only know about refund vs no-refund keep working
- * unchanged.
+ * `hasFulfilmentFor`/`rejectModeFor` default to "no case fulfils/rejects" so
+ * existing callers (and offline tests) that only know about refund vs
+ * no-refund keep working unchanged.
  */
 export function buildRunPlan(
   caseNames: string[],
   hasRefundFor: (name: string) => boolean,
   totalRepeats: number,
   hasFulfilmentFor: (name: string) => boolean = () => false,
+  rejectModeFor: (name: string) => RejectMode = () => undefined,
 ): RunPlanEntry[] {
   const plan: RunPlanEntry[] = [];
   for (let repeatIndex = 0; repeatIndex < totalRepeats; repeatIndex += 1) {
@@ -54,7 +70,7 @@ export function buildRunPlan(
         repeatIndex,
         caseIndex,
         caseName,
-        stages: stageSequenceFor(hasRefundFor(caseName), hasFulfilmentFor(caseName)),
+        stages: stageSequenceFor(hasRefundFor(caseName), hasFulfilmentFor(caseName), rejectModeFor(caseName)),
       });
     });
   }

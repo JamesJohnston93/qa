@@ -1,0 +1,106 @@
+{
+  "store": "US",
+  "timestamp": "20260828T054423Z",
+  "repeat": 1,
+  "passed": true,
+  "repeatConsistent": true,
+  "variance": {},
+  "runs": [
+    {
+      "store": "US",
+      "cases": [
+        {
+          "case": "reject_reallocate",
+          "store": "US",
+          "description": "Reject one item post-allocation -> whole shipment returns to the allocator and reallocates to a fresh backup store (TAA-31)",
+          "passed": true,
+          "orderId": "gid://shopify/Order/7894565880081",
+          "orderName": "#9972",
+          "stages": [
+            {
+              "name": "seed_inventory",
+              "elapsed": 0.7
+            },
+            {
+              "name": "create_order",
+              "elapsed": 5.4
+            },
+            {
+              "name": "shopify_readback",
+              "elapsed": 0.4
+            },
+            {
+              "name": "orders_table",
+              "elapsed": 11.6
+            },
+            {
+              "name": "allocation",
+              "elapsed": 21.7
+            },
+            {
+              "name": "reject_seed",
+              "elapsed": 0
+            },
+            {
+              "name": "reject",
+              "elapsed": 16.6
+            },
+            {
+              "name": "no_refund",
+              "elapsed": 0
+            }
+          ],
+          "error": null
+        },
+        {
+          "case": "reject_undeliverable",
+          "store": "US",
+          "description": "Reject every item on a shipment stocked at one designated store only -> UNDELIVERABLE, refunded (TAA-31)",
+          "passed": true,
+          "orderId": "gid://shopify/Order/7894566732049",
+          "orderName": "#9973",
+          "stages": [
+            {
+              "name": "seed_inventory",
+              "elapsed": 0.8
+            },
+            {
+              "name": "create_order",
+              "elapsed": 4.8
+            },
+            {
+              "name": "shopify_readback",
+              "elapsed": 0.4
+            },
+            {
+              "name": "orders_table",
+              "elapsed": 11.6
+            },
+            {
+              "name": "allocation",
+              "elapsed": 16.7
+            },
+            {
+              "name": "reject",
+              "elapsed": 18.7
+            },
+            {
+              "name": "refund",
+              "elapsed": 13.9
+            },
+            {
+              "name": "cleanup",
+              "elapsed": 21.3
+            },
+            {
+              "name": "inventory",
+              "elapsed": 0
+            }
+          ],
+          "error": null
+        }
+      ],
+      "passed": true
+    }
+  ]
+}

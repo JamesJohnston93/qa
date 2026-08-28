@@ -48,3 +48,4 @@ function describe(value) {
 }
 __exportStar(require("./fulfilment"), exports);
 __exportStar(require("./allocation"), exports);
+__exportStar(require("./rejects"), exports);

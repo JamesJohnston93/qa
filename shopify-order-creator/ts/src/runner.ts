@@ -21,8 +21,11 @@ import {
   allocationSummary,
   orderPkFromRows,
   orderSkuQuantitiesFromRows,
+  groupItemsByShipment,
   type ShipmentItem,
 } from "./readers/dynamoReader";
+import { RejectClient } from "./clients/reject";
+import { rejectShipment } from "./flows/rejectFlow";
 import * as shopifyReader from "./readers/shopifyReader";
 import * as newstoreReader from "./readers/newstoreReader";
 import { pollUntil, resolveInterval, sleep, StageTimeout, type PollIntervalConfig } from "./polling";
@@ -40,6 +43,7 @@ import { assertOrdersTableAlignment, assertShopifyOrder } from "./verify/orders"
 import { assertAllocation, assertItemsRemoved, assertUnitCounts } from "./verify/shipments";
 import { assertNoRefund, assertRefundForSkus } from "./verify/refunds";
 import { assertDecrements } from "./verify/inventory";
+import { assertAllUndeliverable, assertReallocatedOrUndeliverable } from "./verify/rejects";
 import { assertNewStoreOrder } from "./verify/newstore";
 import { assertShipmentItemsFulfilled, assertShipmentTrackingNumber, assertOrderItemsFulfilled } from "./verify/fulfilment";
 import { assertAllocationReflection } from "./verify/allocation";
@@ -161,7 +165,7 @@ export async function runCase(
 
   // TAA-14 Phase A step 4: live progress line, updated per poll tick.
   const hasRefund = Object.keys(caseDef.expectedRefundSkus).length > 0;
-  const caseStages = stageSequenceFor(hasRefund, caseDef.fulfilment);
+  const caseStages = stageSequenceFor(hasRefund, caseDef.fulfilment, caseDef.rejectMode);
   const printProgress = (stageName: string, secondsInStage: number): void => {
     if (!config.verbose || !progress) {
       return;
@@ -313,6 +317,66 @@ export async function runCase(
     stageDone("orders_table", ordersDone.elapsed);
     stageDone("allocation", allocationDone.elapsed);
 
+    // --- 5a. Reject (TAA-31: reject_reallocate/reject_undeliverable only) ---
+    if (caseDef.rejectMode) {
+      const grouped = groupItemsByShipment(lastItems);
+      if (grouped.size !== 1) {
+        throw new VerificationError(
+          "reject.shipment_count",
+          1,
+          grouped.size,
+          `order ${oname}: expected exactly one shipment before rejecting, got ${grouped.size}`,
+        );
+      }
+      const [originalShipmentId, shipmentItems] = [...grouped.entries()][0];
+
+      if (caseDef.rejectMode === "reallocate") {
+        if (!caseDef.rejectSeedStore || !caseDef.rejectSeedQuantity) {
+          throw new Error(`case ${caseDef.name}: rejectMode "reallocate" requires rejectSeedStore/rejectSeedQuantity`);
+        }
+        t0 = Date.now();
+        // Seeded fresh AFTER the initial allocation settled, immediately
+        // before rejecting — this pool's ambient real per-store stock is too
+        // thin to trust for a reliable reallocation target (TAA-31 slice D).
+        await dynamo.setStock(shipmentItems[0].sku, caseDef.rejectSeedQuantity, caseDef.rejectSeedStore);
+        stageDone("reject_seed", (Date.now() - t0) / 1000);
+      }
+
+      const itemIdsToReject =
+        caseDef.rejectMode === "undeliverable"
+          ? shipmentItems.map((item) => item.shipmentItemId)
+          : [shipmentItems[0].shipmentItemId];
+
+      t0 = Date.now();
+      if (caseDef.rejectMode === "undeliverable") {
+        // Defensive re-zero immediately before rejecting: a live run found
+        // this SKU's designated-store-only setup can still see a stray
+        // nonzero location by the time reject fires, tens of seconds after
+        // the initial seed_inventory zeroEverywhere ran (order #9970,
+        // 2026-08-28 — one item landed ALLOCATED at WEB_DC instead of
+        // UNDELIVERABLE when this case ran immediately after
+        // reject_reallocate had seeded/decremented the same SKU there).
+        // Root cause unconfirmed (possibly a delayed backend inventory sync,
+        // same class as the documented ~30-60s AGGREGATE_LOCATIONS mirror
+        // lag) — flagged, not chased, per this project's convention. This
+        // re-zero is cheap (mostly-empty SKU) and removes the race outright.
+        await dynamo.zeroEverywhere(shipmentItems[0].sku);
+      }
+      const rejectResult = await rejectShipment(
+        { reader: dynamoReader, rejectClient: new RejectClient(), verbose: config.verbose },
+        resolvedPk as string,
+        originalShipmentId,
+        itemIdsToReject,
+      );
+      stageDone("reject", (Date.now() - t0) / 1000);
+
+      if (caseDef.rejectMode === "undeliverable") {
+        assertAllUndeliverable(rejectResult.items, oname);
+      } else {
+        assertReallocatedOrUndeliverable(rejectResult.items, originalShipmentId, oname);
+      }
+    }
+
     // --- 6. Refund path (undeliverable cases) or no-refund check ------------
     if (Object.keys(caseDef.expectedRefundSkus).length > 0) {
       const refund = await pollVerify(
@@ -342,17 +406,23 @@ export async function runCase(
       stageDone("no_refund", 0);
     }
 
-    // --- 7. Inventory decremented exactly as expected -----------------------
-    const inventory = await pollVerify(
-      () => dynamo.snapshotInventory(skus),
-      (after) => assertDecrements(before, after, caseDef.expectedDecrements, oname),
-      poll.inventory,
-      dynamoInterval,
-      "inventory",
-      config.verbose,
-      (elapsed) => printProgress("inventory", elapsed),
-    );
-    stageDone("inventory", inventory.elapsed);
+    // --- 7. Inventory decremented exactly as expected ------------------------
+    // Skipped for rejectMode "reallocate": the mid-flight backup-store seed
+    // (stage 5a above) writes a large, deliberate "increase" relative to the
+    // pre-order snapshot that assertDecrements would reject as unexpected —
+    // see CaseDefinition.expectedDecrements's comment on that case.
+    if (caseDef.rejectMode !== "reallocate") {
+      const inventory = await pollVerify(
+        () => dynamo.snapshotInventory(skus),
+        (after) => assertDecrements(before, after, caseDef.expectedDecrements, oname),
+        poll.inventory,
+        dynamoInterval,
+        "inventory",
+        config.verbose,
+        (elapsed) => printProgress("inventory", elapsed),
+      );
+      stageDone("inventory", inventory.elapsed);
+    }
 
     // --- 8-10. Fulfil + verify (TAA-39: fulfil_single/fulfil_split only) ----
     if (caseDef.fulfilment) {
@@ -523,6 +593,7 @@ export async function run(
         (name) => Object.keys(allCases[name].expectedRefundSkus).length > 0,
         totalRepeats,
         (name) => allCases[name].fulfilment,
+        (name) => allCases[name].rejectMode,
       ),
       totalRepeats,
       pipelineNames.length,

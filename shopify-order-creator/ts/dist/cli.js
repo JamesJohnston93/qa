@@ -15,10 +15,11 @@ function printHelp() {
 
 Options:
   --store <US|PS>         Target store (default: US)
-  --cases <name[,name]>   Comma-separated case names. Default set is all 10:
+  --cases <name[,name]>   Comma-separated case names. Default set is all 12:
                           single, multi, unique, split, undeliverable,
-                          partial_undeliverable, fulfil_single, fulfil_split
-                          (pipeline cases) and ns_sfs, ns_otc (NewStore cases).
+                          partial_undeliverable, fulfil_single, fulfil_split,
+                          reject_reallocate, reject_undeliverable (pipeline
+                          cases) and ns_sfs, ns_otc (NewStore cases).
                           Use --list-cases for names + descriptions.
   --repeat <n>            Number of repeats (default: 1)
   --report-dir <path>     Output directory for reports (default: ./reports)
@@ -112,7 +113,7 @@ async function runCli(argv = process.argv.slice(2)) {
     const allDefs = { ...allCases, ...allNewStoreCases };
     const names = config.caseNames?.length ? config.caseNames : Object.keys(allDefs);
     const pipelineNames = names.filter((name) => allDefs[name]?.kind === "pipeline");
-    const plan = (0, progress_1.buildRunPlan)(pipelineNames, (name) => Object.keys(allCases[name].expectedRefundSkus).length > 0, config.repeat, (name) => allCases[name].fulfilment);
+    const plan = (0, progress_1.buildRunPlan)(pipelineNames, (name) => Object.keys(allCases[name].expectedRefundSkus).length > 0, config.repeat, (name) => allCases[name].fulfilment, (name) => allCases[name].rejectMode);
     const tracker = (0, progress_1.createProgressTracker)(plan, config.repeat, pipelineNames.length, Date.now());
     const runs = [];
     for (let i = 0; i < config.repeat; i += 1) {
