@@ -4,18 +4,18 @@ const { parseArgs } = require('../dist/cli.js');
 const { buildCases } = require('../dist/cases/baselineCases.js');
 const { buildNewStoreCases } = require('../dist/cases/newstoreCases.js');
 
-// TAA-39 (slice F): pins the default case set cli.ts's --help/--list-cases
-// describe as "all 10" — a case added/removed/renamed without updating those
-// two hardcoded surfaces (the exact defect fixed 2026-08-06 for `unique`/
-// `partial_undeliverable`) fails loudly here instead of only being caught by
-// a reviewer running --help.
-test('the default case set (pipeline + fulfilment + NewStore) is exactly 10 cases, matching printHelp\'s "all 10" claim', () => {
+// TAA-39/TAA-31 (slice F/G): pins the default case set cli.ts's
+// --help/--list-cases describe as "all 12" — a case added/removed/renamed
+// without updating those two hardcoded surfaces (the exact defect fixed
+// 2026-08-06 for `unique`/`partial_undeliverable`) fails loudly here instead
+// of only being caught by a reviewer running --help.
+test('the default case set (pipeline + fulfilment + reject + NewStore) is exactly 12 cases, matching printHelp\'s "all 12" claim', () => {
   const names = [...Object.keys(buildCases('US')), ...Object.keys(buildNewStoreCases('US'))];
   assert.deepEqual(names, [
     'single', 'multi', 'unique', 'split', 'undeliverable', 'partial_undeliverable',
-    'fulfil_single', 'fulfil_split', 'ns_sfs', 'ns_otc',
+    'fulfil_single', 'fulfil_split', 'reject_reallocate', 'reject_undeliverable', 'ns_sfs', 'ns_otc',
   ]);
-  assert.equal(names.length, 10);
+  assert.equal(names.length, 12);
 });
 
 // TAA-14 decision, implemented 2026-08-06: parallel case execution is the

@@ -60,6 +60,32 @@ test('buildRunPlan: hasFulfilmentFor defaults to "no case fulfils" for existing 
   assert.equal(plan[0].stages.length, 7);
 });
 
+test('stageSequenceFor: reject_reallocate mode inserts reject_seed+reject and drops inventory', () => {
+  assert.deepEqual(stageSequenceFor(false, false, 'reallocate'), [
+    'seed_inventory', 'create_order', 'shopify_readback', 'orders_table',
+    'allocation', 'reject_seed', 'reject', 'no_refund',
+  ]);
+});
+
+test('stageSequenceFor: reject_undeliverable mode inserts reject and keeps inventory', () => {
+  assert.deepEqual(stageSequenceFor(true, false, 'undeliverable'), [
+    'seed_inventory', 'create_order', 'shopify_readback', 'orders_table',
+    'allocation', 'reject', 'refund', 'cleanup', 'inventory',
+  ]);
+});
+
+test('stageSequenceFor: rejectMode defaults to undefined so existing 2/3-arg callers are unaffected', () => {
+  assert.deepEqual(stageSequenceFor(false, true), stageSequenceFor(false, true, undefined));
+});
+
+test('buildRunPlan: rejectModeFor tags a case with the reject stage sequence', () => {
+  const plan = buildRunPlan(['single', 'reject_undeliverable'], (name) => name === 'reject_undeliverable', 1, () => false, (name) =>
+    name === 'reject_undeliverable' ? 'undeliverable' : undefined,
+  );
+  assert.equal(plan[0].stages.length, 7); // single: unaffected
+  assert.deepEqual(plan[1].stages, stageSequenceFor(true, false, 'undeliverable'));
+});
+
 test('flattenPlan concatenates every case-repeat entry\'s stages in order', () => {
   const plan = buildRunPlan(['single'], () => false, 1);
   assert.deepEqual(flattenPlan(plan), stageSequenceFor(false));
