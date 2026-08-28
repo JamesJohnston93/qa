@@ -42,6 +42,7 @@
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.DynamoReader = exports.REMOVED = exports.UNDELIVERABLE = void 0;
+exports.transactionRowsFromRows = transactionRowsFromRows;
 exports.orderSkuQuantitiesFromRows = orderSkuQuantitiesFromRows;
 exports.orderPkFromRows = orderPkFromRows;
 exports.shipmentSummariesFromRows = shipmentSummariesFromRows;
@@ -59,6 +60,26 @@ exports.UNDELIVERABLE = "UNDELIVERABLE";
  * absence.
  */
 exports.REMOVED = "REMOVED";
+/**
+ * `TRANSACTION#` rows -> TransactionRow[]. Pure — offline-testable, same
+ * split as shipmentSummariesFromRows/ShipmentItem above.
+ */
+function transactionRowsFromRows(rows) {
+    const transactions = [];
+    for (const row of rows) {
+        const sk = String(row.SK ?? "");
+        if (!sk.startsWith("TRANSACTION#")) {
+            continue;
+        }
+        transactions.push({
+            sortKey: sk,
+            event: String(row.event ?? ""),
+            shipmentItemInfo: Array.isArray(row.shipmentItemInfo) ? row.shipmentItemInfo : [],
+            raw: row,
+        });
+    }
+    return transactions;
+}
 function originFor(store, orderIdTail) {
     return `${store}#SHOPIFY_ECOM#${orderIdTail}`;
 }
@@ -235,6 +256,17 @@ class DynamoReader {
     async getShipmentsByPk(pk) {
         const rows = await this.queryShipmentRows(pk);
         return shipmentSummariesFromRows(rows);
+    }
+    /**
+     * `TRANSACTION#` rows for an order, for a PK already resolved by the
+     * caller (TAA-31 slice G) — same shape of call as getShipmentsByPk.
+     * Promotes what `probe-reject.ts`'s ad hoc `dumpTransactionRows` already
+     * queried directly (`dynamoReader.ts`'s public surface didn't expose these
+     * rows before this) into a reusable, typed reader.
+     */
+    async getTransactionsByPk(pk) {
+        const rows = await this.queryShipmentRows(pk);
+        return transactionRowsFromRows(rows);
     }
     async queryShipmentRows(pk) {
         const result = await this.dynamo.doc.send(new lib_dynamodb_1.QueryCommand({

@@ -60,17 +60,17 @@ test('buildRunPlan: hasFulfilmentFor defaults to "no case fulfils" for existing 
   assert.equal(plan[0].stages.length, 7);
 });
 
-test('stageSequenceFor: reject_reallocate mode inserts reject_seed+reject and drops inventory', () => {
+test('stageSequenceFor: reject_reallocate mode inserts reject_seed+reject+reject_transactions and drops inventory', () => {
   assert.deepEqual(stageSequenceFor(false, false, 'reallocate'), [
     'seed_inventory', 'create_order', 'shopify_readback', 'orders_table',
-    'allocation', 'reject_seed', 'reject', 'no_refund',
+    'allocation', 'reject_seed', 'reject', 'reject_transactions', 'no_refund',
   ]);
 });
 
-test('stageSequenceFor: reject_undeliverable mode inserts reject and keeps inventory', () => {
+test('stageSequenceFor: reject_undeliverable mode inserts reject+reject_transactions and keeps inventory', () => {
   assert.deepEqual(stageSequenceFor(true, false, 'undeliverable'), [
     'seed_inventory', 'create_order', 'shopify_readback', 'orders_table',
-    'allocation', 'reject', 'refund', 'cleanup', 'inventory',
+    'allocation', 'reject', 'reject_transactions', 'refund', 'cleanup', 'inventory',
   ]);
 });
 

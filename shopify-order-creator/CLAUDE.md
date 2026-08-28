@@ -262,12 +262,14 @@ backend findings, not harness defects.
 `PS_ACCESS_TOKEN` and lack `PS_CLIENT_ID`/`PS_CLIENT_SECRET`. The failure
 message doesn't point back at the stale token.
 
-## TAA-31 (rejection & reallocation) — done (2026-08-23/24/28)
+## TAA-31 (rejection & reallocation) — fully done (2026-08-23/24/28)
 
-Branch `taa-31-reject-probe` (not merged to `main`). All six slices built and
-live-confirmed on both stores; full detail in `ts/signoffs/TAA-31-slice-a.md`
-through `-slice-f.md` — summary only below, read the sign-offs before
-re-deriving any of this.
+Slices A-F/G merged to `main` (`taa-31-reject-probe`, merge commit `9be60c2`);
+slice G's `TRANSACTION#` addendum landed same-day on `taa-31-reject-
+transactions`. All slices built and live-confirmed on both stores; full
+detail in `ts/signoffs/TAA-31-slice-a.md` through `-slice-f.md` (the
+addendum is a section at the end of `-slice-f.md`, not a separate file) —
+summary only below, read the sign-offs before re-deriving any of this.
 
 | Slice | Done when | Status |
 | --- | --- | --- |
@@ -277,11 +279,11 @@ re-deriving any of this.
 | D | `rejectShipment()` whole-shipment-reject flow | ✅ live-confirmed x2 (US only) |
 | E | reject → undeliverable case (audited targeted-zero, `zeroExceptStore`) | ✅ live-confirmed (US only) |
 | F/G | Wire both new cases (`reject_reallocate`/`reject_undeliverable`) into `cases/`/`runner.ts`/`cli.ts`, confirm both stores, `--repeat 2` | ✅ live-confirmed both stores |
+| G addendum | `TRANSACTION#` reader/assertions (`SHIPMENT_REJECTED`/`SHIPMENT_ITEM_REJECTED`) | ✅ live-confirmed both stores, `reject_transactions` resolves in 0.0s every run |
 
-**Remaining, low-priority, not blocking:** a reusable `TRANSACTION#`
-reader/assertions (`SHIPMENT_REJECTED`/`SHIPMENT_ITEM_REJECTED`) — the shape
-has been visually confirmed ad hoc across three separate slices with zero
-surprises, so this is a small follow-up, not an open design question.
+No known remaining scope. The `reject_undeliverable` cross-case race's root
+cause (slice F/G) stays flagged, unchased — JJ's call on whether it's ever
+worth a dedicated investigation, same posture as TAA-42.
 
 **Headline correction to the original brief — reject is NOT the same
 endpoint as fulfil.** It's a genuine sibling path, `POST /staging/reject`

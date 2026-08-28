@@ -87,6 +87,42 @@ export interface ShipmentSummary {
   raw: Record<string, unknown>;
 }
 
+/**
+ * A `TRANSACTION#` event-log row (TAA-31 slice G) — `staging-shipments`'
+ * append-only history of what happened to an order's shipments/items.
+ * `shipmentItemInfo` is the per-item detail array most events carry (e.g.
+ * `SHIPMENT_ITEM_REJECTED` rows carry exactly one entry, keyed by `id`, the
+ * `ITEM#<uuid>` shipmentItemId); events with no such array (e.g. bare
+ * `REALLOCATION` rows) get `[]`, not `undefined`.
+ */
+export interface TransactionRow {
+  sortKey: string; // the TRANSACTION#<timestamp> sort key, verbatim
+  event: string; // e.g. "SHIPMENT_REJECTED", "SHIPMENT_ITEM_REJECTED"
+  shipmentItemInfo: Record<string, unknown>[];
+  raw: Record<string, unknown>;
+}
+
+/**
+ * `TRANSACTION#` rows -> TransactionRow[]. Pure — offline-testable, same
+ * split as shipmentSummariesFromRows/ShipmentItem above.
+ */
+export function transactionRowsFromRows(rows: Record<string, unknown>[]): TransactionRow[] {
+  const transactions: TransactionRow[] = [];
+  for (const row of rows) {
+    const sk = String(row.SK ?? "");
+    if (!sk.startsWith("TRANSACTION#")) {
+      continue;
+    }
+    transactions.push({
+      sortKey: sk,
+      event: String(row.event ?? ""),
+      shipmentItemInfo: Array.isArray(row.shipmentItemInfo) ? (row.shipmentItemInfo as Record<string, unknown>[]) : [],
+      raw: row,
+    });
+  }
+  return transactions;
+}
+
 export interface AllocationSummary {
   totalUnits: number;
   byStore: Record<string, string[]>; // store -> [sku, ...] one entry per unit
@@ -282,6 +318,18 @@ export class DynamoReader {
   async getShipmentsByPk(pk: string): Promise<ShipmentSummary[]> {
     const rows = await this.queryShipmentRows(pk);
     return shipmentSummariesFromRows(rows);
+  }
+
+  /**
+   * `TRANSACTION#` rows for an order, for a PK already resolved by the
+   * caller (TAA-31 slice G) — same shape of call as getShipmentsByPk.
+   * Promotes what `probe-reject.ts`'s ad hoc `dumpTransactionRows` already
+   * queried directly (`dynamoReader.ts`'s public surface didn't expose these
+   * rows before this) into a reusable, typed reader.
+   */
+  async getTransactionsByPk(pk: string): Promise<TransactionRow[]> {
+    const rows = await this.queryShipmentRows(pk);
+    return transactionRowsFromRows(rows);
   }
 
   private async queryShipmentRows(pk: string): Promise<Record<string, unknown>[]> {
