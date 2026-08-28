@@ -462,6 +462,8 @@ Futura / Delivery Note verification remains out of scope everywhere.
 
 ## Housekeeping — do this before any review or handover (as at 2026-08-07)
 
+*(Status update, 2026-08-28: this section is the 2026-08-07 snapshot, kept as the record, and is now resolved. `taa-22-ps` was pushed and merged to `main` on 2026-08-21 (`3dfa0b4`); `main` is at `8b18d73`. The prunable-leftover list has grown: `taa-14-speedup`, `taa-15-cli-port`, `taa-17-newstore`, `taa-22-ps`, `taa-31-reject-probe`, `taa-31-reject-transactions`, `taa-34-fulfil-client`, `taa-36-fulfil-order`, `taa-37-verify-fulfilment`, `taa-38-allocation-reflection` and `taa-39-fulfil-cases` are all merged into `main`. `.claude/` and `_to_delete/` are still untracked.)*
+
 Branch state is the first thing a reviewer looks at, and right now it does not
 read well:
 
