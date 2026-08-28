@@ -5,6 +5,73 @@ TypeScript CLI + regression harness (`ts/`) for placing test orders on Universal
 **Owner:** JJ (james.johnston@universalstore.com.au). Tool originally by Jared Davis (as a Python CLI — see "TS rewrite complete" below).
 **Tracking:** Jira project TAA (current: **TAA-21 fulfilment workstream — all six slices (TAA-34..39) done**, live-confirmed on both stores (2026-08-23); **TAA-31 (rejection & reallocation) — done**, both reject cases (`reject_reallocate`/`reject_undeliverable`) wired into the regression suite and live-confirmed on both stores (2026-08-28) — see "TAA-31" section below; **TAA-42** filed for a real backend defect found by the `--repeat 3` check (Shopify fulfilment sync sometimes never fires, ~27% observed) — deliberately deferred, full order regression coverage is the priority before chasing it; TAA-40 owns the outstanding PS `--repeat 3` live run for the *baseline* set; TAA-32/33 queued behind TAA-31). Docs: Confluence QD space → "QA Automation Tool" page tree — see `regression-package-design.md` and `scope-of-work-reworked.md` in this folder, and `qa-order-cli-tool-documentation.md` for the `order` command's user-facing docs.
 
+## TAA-46 IN FLIGHT (2026-08-28) — SKU pool to 80 slots + availability rule
+
+**Start here.** Plan: `ts/plans/TAA-46-plan.md`. Ticket:
+https://universalstore.atlassian.net/browse/TAA-46 (parent workstream TAA-43; blocks
+TAA-49 and TAA-61). Baseline when planned: `main` @ `831e204`, 320/320 offline tests
+green.
+
+Four slices, each committable on its own branch. **Slice A is next:**
+`ts/scripts/dump-availability.js`, a read-only Admin GraphQL probe that dumps
+`product.status`, `resourcePublicationsV2`, `unpublishedPublications` and
+catalog/market membership for pool slots 0 to 13 on both stores, plus three non-pool
+candidate SKUs from `sku-lists/<store>-skus.json`. It asserts nothing. Follow
+`ts/scripts/fetch-sku-gids.js`'s shape: standalone Node under `ts/scripts/`, requiring
+`../dist/clients/shopify.js`, outside the tsconfig build, `node dump-availability.js
+<US|PS>`. `ShopifyClient.execute<T>()` is public (`shopify.ts:94`) and the Admin API is
+pinned at 2025-10 (`shopify.ts:357`), so auth and throttle retry come free. Expect a
+possible scope gap on one or both apps, same risk class as TAA-22 with `read_products`;
+if a scope is missing, throw with the body and record it, do not fall back to a partial
+profile.
+
+Then slice B settles the one open question empirically (does channel publication gate
+Admin-API order creation, or only storefront visibility?), slice C expands both pools
+and pins the NewStore cases, slice D live-confirms and documents.
+
+Three scope calls JJ made on 2026-08-28 that supersede the ticket text, which still
+says 64 slots and 50 new:
+
+1. **80 slots per store, 66 new.** The conventions doc's own worst-case estimate for the
+   finished package is 70 to 80 active slots, so 64 would have needed a revisit. Both
+   JSON files have the headroom (191 US, 180 PS resolved pairs).
+2. **`ns_sfs` and `ns_otc` pinned to slots 14 and 15.** TAA-31 closed on slot 13 without
+   needing 14/15, so they are free.
+3. **Pool SKUs stay ordinary staging-catalogue products**, `staging-sku-setup.md`'s
+   `QA TEST` recommendation for new additions deliberately not followed. Slice D
+   annotates that doc.
+
+**The trap this ticket nearly walked into.** `ts/src/cases/newstoreCases.ts:38-40` binds
+`ns_sfs` and `ns_otc` to `pool[length-2]` and `pool[length-1]`, the **last two pool
+entries by position**, not to fixed slots. Growing the pool to 80 would have silently
+migrated both NewStore cases from slots 12/13 to slots 78/79: brand-new SKUs whose
+availability this very ticket had not yet proven. The ticket's claim that slots 0 to 13
+are used "across baselineCases.ts and newstoreCases.ts" is wrong in mechanism, and the
+mechanism is exactly what breaks on expansion. `newstoreCases.ts`'s doc comment is also
+stale, still describing pools of "5 US / 4 PS". Slice C fixes both; the comment's
+substantive point (NS injection touches neither Shopify nor `staging-inventory-v2`, so
+it cannot race a baseline case) is still true and is being kept.
+
+Also corrected while planning: `sku-lists/us-skus.json` and `ps-skus.json` are JSON
+**arrays** of `{sku, gid, title, price}` objects, not SKU-to-GID maps. The ticket calls
+them "pairs".
+
+Slot map, 0 to 79, as planned (authoritative version lives in the plan file until
+slice D lands it here):
+
+| Slots | Owner |
+| --- | --- |
+| 0 to 13 | existing default case set, unchanged |
+| 14 to 15 | `ns_sfs` / `ns_otc`, pinned by slice C |
+| 16 | TAA-32 click & collect |
+| 17 | TAA-33 finalisation |
+| 18 to 23 | hold lifecycle TC7-12 (TAA-54) |
+| 24 to 30 | edit & refund TC13-19 (TAA-56) |
+| 31 to 37 | return & finalisation TC20-22, TC27-29 (TAA-58) |
+| 38 to 49 | order shapes (TAA-60 discovery, TAA-61 cases) |
+| 50 to 52 | discount & BOGO (TAA-62) |
+| 53 to 79 | spare (27 slots), including the complex-order shapes JJ is adding later |
+
 ## TAA-34 sign-off (2026-08-21) — fulfilment slice A live-confirmed, two contract deviations found
 
 **Housekeeping done first:** `taa-22-ps` pushed and merged to `main` (merge
