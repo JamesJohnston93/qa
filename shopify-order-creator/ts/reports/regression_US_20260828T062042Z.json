@@ -1,0 +1,218 @@
+{
+  "store": "US",
+  "timestamp": "20260828T062042Z",
+  "repeat": 2,
+  "passed": true,
+  "repeatConsistent": true,
+  "variance": {},
+  "runs": [
+    {
+      "store": "US",
+      "cases": [
+        {
+          "case": "reject_reallocate",
+          "store": "US",
+          "description": "Reject one item post-allocation -> whole shipment returns to the allocator and reallocates to a fresh backup store (TAA-31)",
+          "passed": true,
+          "orderId": "gid://shopify/Order/7894606807313",
+          "orderName": "#9980",
+          "stages": [
+            {
+              "name": "seed_inventory",
+              "elapsed": 0.7
+            },
+            {
+              "name": "create_order",
+              "elapsed": 5.1
+            },
+            {
+              "name": "shopify_readback",
+              "elapsed": 0.4
+            },
+            {
+              "name": "orders_table",
+              "elapsed": 11.7
+            },
+            {
+              "name": "allocation",
+              "elapsed": 21.8
+            },
+            {
+              "name": "reject_seed",
+              "elapsed": 0
+            },
+            {
+              "name": "reject",
+              "elapsed": 14.6
+            },
+            {
+              "name": "reject_transactions",
+              "elapsed": 0
+            },
+            {
+              "name": "no_refund",
+              "elapsed": 0
+            }
+          ],
+          "error": null
+        },
+        {
+          "case": "reject_undeliverable",
+          "store": "US",
+          "description": "Reject every item on a shipment stocked at one designated store only -> UNDELIVERABLE, refunded (TAA-31)",
+          "passed": true,
+          "orderId": "gid://shopify/Order/7894607593745",
+          "orderName": "#9981",
+          "stages": [
+            {
+              "name": "seed_inventory",
+              "elapsed": 0.7
+            },
+            {
+              "name": "create_order",
+              "elapsed": 4.2
+            },
+            {
+              "name": "shopify_readback",
+              "elapsed": 0.4
+            },
+            {
+              "name": "orders_table",
+              "elapsed": 11.6
+            },
+            {
+              "name": "allocation",
+              "elapsed": 21.7
+            },
+            {
+              "name": "reject",
+              "elapsed": 18.7
+            },
+            {
+              "name": "reject_transactions",
+              "elapsed": 0
+            },
+            {
+              "name": "refund",
+              "elapsed": 13.9
+            },
+            {
+              "name": "cleanup",
+              "elapsed": 16.3
+            },
+            {
+              "name": "inventory",
+              "elapsed": 0
+            }
+          ],
+          "error": null
+        }
+      ],
+      "passed": true
+    },
+    {
+      "store": "US",
+      "cases": [
+        {
+          "case": "reject_reallocate",
+          "store": "US",
+          "description": "Reject one item post-allocation -> whole shipment returns to the allocator and reallocates to a fresh backup store (TAA-31)",
+          "passed": true,
+          "orderId": "gid://shopify/Order/7894608937233",
+          "orderName": "#9982",
+          "stages": [
+            {
+              "name": "seed_inventory",
+              "elapsed": 0.8
+            },
+            {
+              "name": "create_order",
+              "elapsed": 4.2
+            },
+            {
+              "name": "shopify_readback",
+              "elapsed": 0.4
+            },
+            {
+              "name": "orders_table",
+              "elapsed": 11.6
+            },
+            {
+              "name": "allocation",
+              "elapsed": 16.7
+            },
+            {
+              "name": "reject_seed",
+              "elapsed": 0
+            },
+            {
+              "name": "reject",
+              "elapsed": 12.5
+            },
+            {
+              "name": "reject_transactions",
+              "elapsed": 0
+            },
+            {
+              "name": "no_refund",
+              "elapsed": 0
+            }
+          ],
+          "error": null
+        },
+        {
+          "case": "reject_undeliverable",
+          "store": "US",
+          "description": "Reject every item on a shipment stocked at one designated store only -> UNDELIVERABLE, refunded (TAA-31)",
+          "passed": true,
+          "orderId": "gid://shopify/Order/7894609297681",
+          "orderName": "#9983",
+          "stages": [
+            {
+              "name": "seed_inventory",
+              "elapsed": 0.7
+            },
+            {
+              "name": "create_order",
+              "elapsed": 4.6
+            },
+            {
+              "name": "shopify_readback",
+              "elapsed": 0.4
+            },
+            {
+              "name": "orders_table",
+              "elapsed": 11.6
+            },
+            {
+              "name": "allocation",
+              "elapsed": 21.7
+            },
+            {
+              "name": "reject",
+              "elapsed": 14.7
+            },
+            {
+              "name": "reject_transactions",
+              "elapsed": 0
+            },
+            {
+              "name": "refund",
+              "elapsed": 14.2
+            },
+            {
+              "name": "cleanup",
+              "elapsed": 16.3
+            },
+            {
+              "name": "inventory",
+              "elapsed": 0
+            }
+          ],
+          "error": null
+        }
+      ],
+      "passed": true
+    }
+  ]
+}

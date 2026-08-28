@@ -102,6 +102,15 @@ export interface PollWindows {
    * budget — so 300s was rejected on the same reasoning.
    */
   fulfilment: number;
+  /**
+   * reject resolved (rejectShipment() settled) -> SHIPMENT_REJECTED +
+   * SHIPMENT_ITEM_REJECTED TRANSACTION# rows present (TAA-31 slice G). Every
+   * live trial to date (slices A/D/E/F) found these rows already present by
+   * the time a separate probe checked minutes later — this stage has never
+   * actually been timed against a fresh reject, so 30s is a conservative
+   * first estimate (not a measured margin) pending real numbers.
+   */
+  rejectTransactions: number;
 }
 
 export const DEFAULT_POLL_WINDOWS: PollWindows = {
@@ -115,6 +124,7 @@ export const DEFAULT_POLL_WINDOWS: PollWindows = {
   newstoreReadback: 30,
   newstoreInterval: 2,
   fulfilment: 150,
+  rejectTransactions: 30,
 };
 
 export interface RegressionConfig {

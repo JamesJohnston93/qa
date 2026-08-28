@@ -20,16 +20,23 @@ export type RejectMode = "reallocate" | "undeliverable" | undefined;
  *
  * `rejectMode: "reallocate"` inserts `reject_seed` (the mid-flight backup-
  * store top-up slice D's design needs, since ambient real stock for this
- * SKU is too thin to trust) and `reject` before the refund branch, and
- * SKIPS `inventory` entirely — the mid-flight top-up perturbs the
- * before/after snapshot `assertDecrements` compares, so this case doesn't
- * run that check (see `ts/signoffs/TAA-31-slice-f.md`). `rejectMode:
- * "undeliverable"` inserts only `reject` (no mid-flight seed — slice E's
- * audited targeted-zero happens entirely in `seed_inventory`) and keeps
- * `inventory`, since nothing moves between stores after the reject.
+ * SKU is too thin to trust), `reject`, and `reject_transactions` (TAA-31
+ * slice G: confirms the SHIPMENT_REJECTED/SHIPMENT_ITEM_REJECTED
+ * TRANSACTION# rows) before the refund branch, and SKIPS `inventory`
+ * entirely — the mid-flight top-up perturbs the before/after snapshot
+ * `assertDecrements` compares, so this case doesn't run that check (see
+ * `ts/signoffs/TAA-31-slice-f.md`). `rejectMode: "undeliverable"` inserts
+ * `reject` and `reject_transactions` (no mid-flight seed — slice E's audited
+ * targeted-zero happens entirely in `seed_inventory`) and keeps `inventory`,
+ * since nothing moves between stores after the reject.
  */
 export function stageSequenceFor(hasRefund: boolean, hasFulfilment = false, rejectMode: RejectMode = undefined): string[] {
-  const rejectStages = rejectMode === "reallocate" ? ["reject_seed", "reject"] : rejectMode === "undeliverable" ? ["reject"] : [];
+  const rejectStages =
+    rejectMode === "reallocate"
+      ? ["reject_seed", "reject", "reject_transactions"]
+      : rejectMode === "undeliverable"
+        ? ["reject", "reject_transactions"]
+        : [];
   return [
     "seed_inventory",
     "create_order",

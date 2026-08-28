@@ -121,14 +121,14 @@ after every run, confirmed via `probe-stock-check.ts`.
 
 ## Not done this slice
 
-- **`TRANSACTION#` reader/assertions (slice A proposal item 5).** The
+- **`TRANSACTION#` reader/assertions (slice A proposal item 5).** ~~The
   expected `SHIPMENT_REJECTED` + one `SHIPMENT_ITEM_REJECTED` per rejected
   item has now been visually confirmed ad hoc in three separate slices'
   probe dumps (A, D, and this slice's `probe-reject.ts` re-check of order
   #9969) with zero surprises each time — a reusable assertion would be
   low-risk, low-effort follow-up, not a design question. Deferred rather
   than folded in here to keep this slice's diff scoped to the wiring + the
-  race it surfaced.
+  race it surfaced.~~ **Done — see "Slice G addendum" below.**
 - **`probe-reject-undeliverable.ts` (slice E) and `probe-reject.ts`/
   `probe-stock-check.ts`/`probe-seed-store99.ts` (slices A/D) are now fully
   superseded** by the wired cases for day-to-day regression use, but left in
@@ -149,10 +149,72 @@ SKU overlap). New: `src/verify/rejects.ts`, `tests/rejects.test.js`,
 ## Next up
 
 TAA-31's core scope (build the reject client/predicate/flow, both case
-designs, wire into the regression suite, confirm both stores) is done. What
-remains, in rough order of value: the `TRANSACTION#` reader/assertions noted
-above (small); deciding whether the `reject_undeliverable` cross-case race's
+designs, wire into the regression suite, confirm both stores) is done.
+Remaining: deciding whether the `reject_undeliverable` cross-case race's
 root cause is worth a dedicated live investigation or stays flagged
 indefinitely (JJ's call, same as TAA-42); and whether TAA-32 (click &
 collect) or TAA-33 (order-finalised transaction) picks up next, per the
 queue order CLAUDE.md already documents.
+
+## Slice G addendum (2026-08-28, same day) — `TRANSACTION#` assertions
+
+Closes the one item slice F/G left open: proposal item 5 (a reusable
+`TRANSACTION#` reader/assertion), promoted from three separate ad hoc probe
+dumps into real, polled, offline-tested checks. `npm run build` + `npm
+test`: **320/320 green** (310 above + 10 new).
+
+**New in `readers/dynamoReader.ts`:** `TransactionRow` (`sortKey`, `event`,
+`shipmentItemInfo`, `raw`) + pure `transactionRowsFromRows` + a
+`getTransactionsByPk` method, reusing the same private `queryShipmentRows`
+every other per-order reader method already calls — no new AWS query shape,
+just a public, typed view onto rows the client already fetches.
+
+**New in `verify/rejects.ts`:** `assertRejectTransactions(transactions,
+rejectedItemIds, orderName)` — exactly one `SHIPMENT_REJECTED` row, and
+exactly one `SHIPMENT_ITEM_REJECTED` row per *listed* rejected item
+(correlated via `shipmentItemInfo[].id`, confirmed live shape above), not
+"at least one" — a duplicate-firing bug would also fail this. Confirmed via
+this slice's own probe re-checks that `SHIPMENT_ITEM_REJECTED` fires only
+for listed items, not every item on the whole-shipment-returned-to-allocator
+— `reject_reallocate` lists one, so expects exactly one such row;
+`reject_undeliverable` lists every item, so expects one per item.
+
+**Runner wiring:** a new `reject_transactions` stage, polled (not a single
+hard check) right after the existing reject-outcome assertion, using a new
+`poll.rejectTransactions` window (`config.ts`, 30s — a conservative first
+estimate, not a measured margin: this is the first time this check has
+actually been *timed* against a fresh reject rather than checked minutes
+later by a separate probe run). `progress.ts`'s `stageSequenceFor` gained
+this stage for both reject modes.
+
+**Live confirm, both stores:** `reject_reallocate` + `reject_undeliverable`
+back-to-back on US (`--sequential`, then `--repeat 2` under default
+`--parallel`) and PS (`--sequential`) — clean every time.
+**`reject_transactions` resolved in 0.0s on every single run, both cases,
+both stores** — the transaction rows are already present by the time
+`rejectShipment()`'s own poll resolves, confirming what the three prior ad
+hoc probe checks suggested but never actually measured. `poll.
+rejectTransactions`'s 30s window has essentially all of it as margin; not
+tightened on a same-session measurement, same reasoning this project always
+applies (TAA-41's fulfilment window, TAA-31 slice C's reallocation window).
+
+One incidental data point, not investigated further: US's `refund` stage
+took 73.5s in one run (vs. 13.9-19.4s everywhere else, US and PS) — still
+comfortably inside `poll.refund`'s 90s window, so not a failure, just wider
+variance than usual. Consistent with this project's general posture on
+undeliverable→refund timing (already the widest-variance stage per
+`config.ts`'s own tuning notes).
+
+Both SKUs left at 0 across all locations after every run, confirmed via
+`probe-stock-check.ts`.
+
+Files touched: `src/readers/dynamoReader.ts` (`TransactionRow`,
+`transactionRowsFromRows`, `getTransactionsByPk`), `src/verify/rejects.ts`
+(`assertRejectTransactions`), `src/runner.ts` (`reject_transactions` stage),
+`src/config.ts` (`poll.rejectTransactions`), `src/progress.ts`
+(`stageSequenceFor` gains the new stage for both reject modes),
+`tests/dynamoReader.test.js`, `tests/rejects.test.js`,
+`tests/progress.test.js`. Nothing fenced touched.
+
+TAA-31 is now fully closed — no known remaining scope beyond the
+cross-case-race root cause (flagged, JJ's call on whether to chase it).

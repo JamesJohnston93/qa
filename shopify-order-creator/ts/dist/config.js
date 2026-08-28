@@ -52,6 +52,7 @@ exports.DEFAULT_POLL_WINDOWS = {
     newstoreReadback: 30,
     newstoreInterval: 2,
     fulfilment: 150,
+    rejectTransactions: 30,
 };
 function defaultConfig() {
     return {

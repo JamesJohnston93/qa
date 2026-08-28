@@ -5,6 +5,7 @@ const {
   orderPkFromRows,
   shipmentSummariesFromRows,
   groupItemsByShipment,
+  transactionRowsFromRows,
 } = require('../dist/readers/dynamoReader.js');
 
 function itemRow(pk, sku) {
@@ -101,4 +102,43 @@ test('groupItemsByShipment excludes items not yet allocated to a shipment (shipm
   const grouped = groupItemsByShipment(items);
   assert.equal(grouped.size, 1);
   assert.equal(grouped.get('ship-1').length, 1);
+});
+
+// TAA-31 slice G: fixtures shaped from the real order #9970/#9969 transaction
+// dumps (ts/signoffs/TAA-31-slice-f.md) — not invented shapes.
+test('transactionRowsFromRows extracts only TRANSACTION# rows, normalizing event/shipmentItemInfo', () => {
+  const rows = [
+    { PK: 'pk1', SK: 'ITEM#a', sku: 'sku1' },
+    { PK: 'pk1', SK: 'SHIPMENT#s1', allocatedStore: '100' },
+    {
+      PK: 'pk1',
+      SK: 'TRANSACTION#1787895359776',
+      event: 'SHIPMENT_REJECTED',
+      shipmentItemInfo: [{ id: 'ITEM#a', sku: 'sku1' }, { id: 'ITEM#b', sku: 'sku1' }],
+    },
+    {
+      PK: 'pk1',
+      SK: 'TRANSACTION#1787895360776',
+      event: 'SHIPMENT_ITEM_REJECTED',
+      shipmentItemInfo: [{ id: 'ITEM#a', shipmentId: 's1', rejectedStore: '100' }],
+    },
+  ];
+  const transactions = transactionRowsFromRows(rows);
+  assert.equal(transactions.length, 2);
+  assert.deepEqual(
+    transactions.map((t) => t.event),
+    ['SHIPMENT_REJECTED', 'SHIPMENT_ITEM_REJECTED'],
+  );
+  assert.deepEqual(transactions[1].shipmentItemInfo, [{ id: 'ITEM#a', shipmentId: 's1', rejectedStore: '100' }]);
+});
+
+test('transactionRowsFromRows defaults shipmentItemInfo to [] for events that carry none (e.g. bare REALLOCATION rows)', () => {
+  const rows = [{ PK: 'pk1', SK: 'TRANSACTION#1', event: 'REALLOCATION' }];
+  assert.deepEqual(transactionRowsFromRows(rows), [
+    { sortKey: 'TRANSACTION#1', event: 'REALLOCATION', shipmentItemInfo: [], raw: rows[0] },
+  ]);
+});
+
+test('transactionRowsFromRows returns [] when there are no TRANSACTION# rows', () => {
+  assert.deepEqual(transactionRowsFromRows([{ PK: 'pk1', SK: 'ITEM#a' }]), []);
 });

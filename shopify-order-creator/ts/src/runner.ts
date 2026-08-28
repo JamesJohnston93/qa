@@ -43,7 +43,7 @@ import { assertOrdersTableAlignment, assertShopifyOrder } from "./verify/orders"
 import { assertAllocation, assertItemsRemoved, assertUnitCounts } from "./verify/shipments";
 import { assertNoRefund, assertRefundForSkus } from "./verify/refunds";
 import { assertDecrements } from "./verify/inventory";
-import { assertAllUndeliverable, assertReallocatedOrUndeliverable } from "./verify/rejects";
+import { assertAllUndeliverable, assertReallocatedOrUndeliverable, assertRejectTransactions } from "./verify/rejects";
 import { assertNewStoreOrder } from "./verify/newstore";
 import { assertShipmentItemsFulfilled, assertShipmentTrackingNumber, assertOrderItemsFulfilled } from "./verify/fulfilment";
 import { assertAllocationReflection } from "./verify/allocation";
@@ -375,6 +375,18 @@ export async function runCase(
       } else {
         assertReallocatedOrUndeliverable(rejectResult.items, originalShipmentId, oname);
       }
+
+      // --- 5b. Reject transaction log (TAA-31 slice G / slice A proposal item 5)
+      const rejectTransactions = await pollVerify(
+        () => dynamoReader.getTransactionsByPk(resolvedPk as string),
+        (transactions) => assertRejectTransactions(transactions, itemIdsToReject, oname),
+        poll.rejectTransactions,
+        dynamoInterval,
+        "reject_transactions",
+        config.verbose,
+        (elapsed) => printProgress("reject_transactions", elapsed),
+      );
+      stageDone("reject_transactions", rejectTransactions.elapsed);
     }
 
     // --- 6. Refund path (undeliverable cases) or no-refund check ------------

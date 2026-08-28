@@ -308,6 +308,9 @@ async function runCase(config, caseDef, progress) {
             else {
                 (0, rejects_1.assertReallocatedOrUndeliverable)(rejectResult.items, originalShipmentId, oname);
             }
+            // --- 5b. Reject transaction log (TAA-31 slice G / slice A proposal item 5)
+            const rejectTransactions = await pollVerify(() => dynamoReader.getTransactionsByPk(resolvedPk), (transactions) => (0, rejects_1.assertRejectTransactions)(transactions, itemIdsToReject, oname), poll.rejectTransactions, dynamoInterval, "reject_transactions", config.verbose, (elapsed) => printProgress("reject_transactions", elapsed));
+            stageDone("reject_transactions", rejectTransactions.elapsed);
         }
         // --- 6. Refund path (undeliverable cases) or no-refund check ------------
         if (Object.keys(caseDef.expectedRefundSkus).length > 0) {
