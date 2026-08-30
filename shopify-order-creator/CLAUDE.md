@@ -5,6 +5,67 @@ TypeScript CLI + regression harness (`ts/`) for placing test orders on Universal
 **Owner:** JJ (james.johnston@universalstore.com.au). Tool originally by Jared Davis (as a Python CLI — see "TS rewrite complete" below).
 **Tracking:** Jira project TAA (current: **TAA-21 fulfilment workstream — all six slices (TAA-34..39) done**, live-confirmed on both stores (2026-08-23); **TAA-31 (rejection & reallocation) — done**, both reject cases (`reject_reallocate`/`reject_undeliverable`) wired into the regression suite and live-confirmed on both stores (2026-08-28) — see "TAA-31" section below; **TAA-46 — all four slices done (2026-08-30)**, both pools grown 14→80 with the availability rule settled, see the sign-off immediately below (ticket transition proposed, left to JJ); **TAA-42** filed for a real backend defect found by the `--repeat 3` check (Shopify fulfilment sync sometimes never fires, ~27% observed) — deliberately deferred, full order regression coverage is the priority before chasing it; TAA-40 owns the outstanding PS `--repeat 3` live run for the *baseline* set; TAA-32/33 queued behind TAA-31). Docs: Confluence QD space → "QA Automation Tool" page tree — see `regression-package-design.md` and `scope-of-work-reworked.md` in this folder, and `qa-order-cli-tool-documentation.md` for the `order` command's user-facing docs.
 
+## TAA-53 sign-off (2026-08-30) — admin-mutation probe, six contracts settled
+
+Full detail in `ts/signoffs/TAA-53-probe.md` — read that first. Summary
+only below. Probe script: `ts/scripts/probe-admin-mutations.js` (hand-run,
+asserts nothing, not wired into cli.ts/index.ts/--help, per the ticket).
+Pool slots 53+ (spare) in use.
+
+**Scope check (both apps) — no gaps for the two named scopes.** Both
+`AWS OMS App` (US) and `QA PS App` (PS) carry all 29 scopes, including
+`write_order_edits` and `write_returns` on both — unlike TAA-22/TAA-46
+slice A, a clean "none found." Incidental unrelated gap: `payment_terms`
+(read and write) is missing from both apps' scope lists entirely — blocks
+`Order.paymentTerms` reads and `DraftOrderInput.paymentTerms` writes; see
+the sign-off's payment-priming section.
+
+**Six contracts, all succeeded on Shopify's side; four of six produced a
+`TRANSACTION#` row in `staging-orders-v2`, two did not:**
+
+| Mutation | TRANS row | Event(s) |
+| --- | --- | --- |
+| Edit chain (Begin→AddVariant→SetQuantity→AddLineItemDiscount→Commit) | Yes, 3 separate rows, staggered ~15-42s | `REFUND_ITEM`, `HOLD_ORDER`, `ADD_ITEM` — no single "edited" event |
+| refundCreate (targeted) | Yes, ~10-16s | `REFUND_ITEM` |
+| refundCreate (untargeted/appeasement) | Yes, ~6-10s, plus a follow-on hold | `REFUND_ORDER_UNTARGETED`, then `HOLD_ORDER` |
+| fulfillmentOrderHold / ReleaseHold | Yes, both ~5-10s | `HOLD_ORDER` / `UNHOLD_ORDER` (GraphQL reason `HIGH_RISK_OF_FRAUD` → Dynamo reason string `POTENTIAL_FRAUD`) |
+| fulfillmentOrderMove | **No**, 0 rows in 60s | n/a — consistent with the LLD's TC24 note that `fulfillment_orders/moved` may be CC-filtered |
+| returnCreate + returnClose | **No**, 0 rows after 5+ min | n/a — `returnClose` alone, no attached refund; untested whether a return *with* money movement lands differently |
+| orderMarkAsPaid | Yes, ~27s after the automatic pre-existing hold | `UNHOLD_ORDER` (`OUTSTANDING_PAYMENT` removed) |
+
+**Payment-priming sequence (item a) — the obvious path is scope-blocked,
+a workaround path was clean, JJ's specific claim unreproduced.**
+`draftOrderComplete` has no `paymentPending` arg in this API version and
+always lands orders `PAID`; `DraftOrderInput.paymentTerms` is blocked by
+the same missing `payment_terms` scope above. Worked around for this probe
+only via `orderCreate(financialStatus: PENDING)` (a different Admin API
+mutation, not proposed as a harness replacement) → `orderMarkAsPaid`, no
+intermediate step: **clean success, no lambda errors**, automatic
+`HOLD_ORDER`(`OUTSTANDING_PAYMENT`) → `UNHOLD_ORDER` on markAsPaid. Does
+**not** reproduce JJ's "out-of-order causes lambda errors" claim; the
+specific custom codes he referenced could not be found anywhere in this
+repo. Left open for JJ — see the sign-off for the three unconfirmed
+explanations.
+
+**refundCreate idempotency on 2025-10 (item b) — no.** `RefundInput` has
+no idempotency-key field at all in the schema. The `Idempotency-Key` HTTP
+header was tested directly (two identical targeted-refund calls, same
+key): both executed as independent requests, no deduplication — the
+second correctly failed on ordinary business logic since the first had
+already consumed the refundable quantity.
+
+**Orders burned (9 total, US #9986-#9993 + PS #3322):** full per-order SKU/
+slot/purpose table in the sign-off. All on pool slots 53-64 (spare range),
+no collision with any ticket's reserved slots.
+
+**Mid-session note:** TAA-48 (the real `staging-orders-v2` transaction
+reader, `DynamoReader.getOrderTransactions`) merged to `main` while this
+probe was running. Not used for the main run (already committed to raw
+reads by the time it landed) but cross-checked once against order #9986 —
+byte-for-byte parity with the raw dump. `npm test`: 334/334 (327 + TAA-48's
+7 new tests — this ticket added none, per its own "should not change the
+327 count" instruction, now read against the baseline TAA-48 itself moved).
+
 ## TAA-46 sign-off (2026-08-30) — pool at 80, availability rule settled, all four slices done
 
 Parent workstream TAA-43; blocks TAA-49 (orders-service cases) and TAA-61
