@@ -44,8 +44,14 @@ export interface ShopifyOrderResult {
  * Optional delivery override for createDraftOrder (TAA-15 ad-hoc order
  * command) — an explicit per-call param, not module-global state. Omitted
  * entirely = unchanged default behaviour: first available shipping rate.
+ *
+ * Pickup carries a location NAME, not an id (TAA-68): `DraftOrderInput.
+ * deliveryMethod` was removed from the Admin API in 2025-10, so pickup is
+ * now resolved the same way as a named rate — matched by name against a
+ * query result — via `draftOrderAvailableDeliveryOptions`, inside
+ * createDraftOrder itself. See that method for the two-step flow.
  */
-export type DeliverySelection = { type: "rate"; title: string } | { type: "pickup"; locationId: string };
+export type DeliverySelection = { type: "rate"; title: string } | { type: "pickup"; locationName: string };
 
 interface GraphQLError {
   message: string;
@@ -156,17 +162,19 @@ export class ShopifyClient {
       lineItems,
     };
 
-    if (delivery?.type === "pickup") {
-      // Local pickup: no shippingAddress/shippingLine needed.
-      input.deliveryMethod = { methodType: "LOCAL", locationId: delivery.locationId };
-    } else {
-      const shippingRateHandle =
-        delivery?.type === "rate"
+    // TAA-68: DraftOrderInput.deliveryMethod is entirely absent from the
+    // 2025-10 schema (confirmed by live introspection on both stores) — a
+    // pickup order is placed the same way as a rate order, just resolving
+    // its shippingRateHandle from a different query. Every path needs a
+    // shippingAddress; there is no "no address" pickup shape any more.
+    const shippingRateHandle =
+      delivery?.type === "pickup"
+        ? await this.fetchNamedPickupHandle(lineItems, firstName, lastName, delivery.locationName)
+        : delivery?.type === "rate"
           ? await this.fetchNamedShippingRateHandle(customerEmail, lineItems, firstName, lastName, delivery.title)
           : await this.fetchShippingRateHandle(customerEmail, lineItems, firstName, lastName);
-      input.shippingAddress = mockAddress(firstName, lastName);
-      input.shippingLine = { shippingRateHandle };
-    }
+    input.shippingAddress = mockAddress(firstName, lastName);
+    input.shippingLine = { shippingRateHandle };
 
     const result = await this.execute<{
       draftOrderCreate: {
@@ -274,6 +282,61 @@ export class ShopifyClient {
     const match = rates.find((rate) => rate.title === title);
     if (!match) {
       throw new Error(`Shipping rate "${title}" not found. Available: ${JSON.stringify(rates.map((r) => r.title))}`);
+    }
+    return match.handle;
+  }
+
+  /**
+   * Local pickup options fulfillment-eligible for these line items at this
+   * address, via `draftOrderAvailableDeliveryOptions` (TAA-68's replacement
+   * for the removed `DraftOrderInput.deliveryMethod`). The set returned is
+   * NOT "every pickup location that exists" — it's exactly the locations
+   * that can actually fulfil this order, same as the real storefront
+   * click-and-collect picker. Confirmed live: a location absent here is
+   * absent because it doesn't stock/can't fulfil these line items, not
+   * because of a count/distance cap — an explicit `localPickupCount` did
+   * not change the result for either a 1-option or an 8-option case.
+   */
+  private async fetchLocalPickupOptions(
+    lineItems: ShopifyLineItemInput[],
+    firstName: string,
+    lastName: string,
+  ): Promise<Array<{ handle: string; title: string }>> {
+    const result = await this.execute<{
+      draftOrderAvailableDeliveryOptions: {
+        availableLocalPickupOptions: Array<{ handle: string; title: string }>;
+      };
+    }>(DRAFT_ORDER_AVAILABLE_DELIVERY_OPTIONS, {
+      input: {
+        lineItems,
+        shippingAddress: mockAddress(firstName, lastName),
+      },
+    });
+
+    if (result.errors && result.errors.length > 0) {
+      throw new Error(`draftOrderAvailableDeliveryOptions failed: ${JSON.stringify(result.errors)}`);
+    }
+    return result.data?.draftOrderAvailableDeliveryOptions.availableLocalPickupOptions ?? [];
+  }
+
+  /**
+   * Exact title match against fulfillment-eligible pickup options, or throw
+   * listing what's actually available. No customerEmail param, unlike the
+   * rate-handle fetchers — `DraftOrderAvailableDeliveryOptionsInput` has no
+   * `email` field (confirmed by live introspection).
+   */
+  private async fetchNamedPickupHandle(
+    lineItems: ShopifyLineItemInput[],
+    firstName: string,
+    lastName: string,
+    locationName: string,
+  ): Promise<string> {
+    const options = await this.fetchLocalPickupOptions(lineItems, firstName, lastName);
+    const match = options.find((option) => option.title === locationName);
+    if (!match) {
+      throw new Error(
+        `Pickup location "${locationName}" not found or not fulfillment-eligible for these line items. Available: ${JSON.stringify(options.map((o) => o.title))}`,
+      );
     }
     return match.handle;
   }
@@ -443,6 +506,17 @@ const DRAFT_ORDER_CALCULATE = `
         }
       }
       userErrors { field message }
+    }
+  }
+`;
+
+const DRAFT_ORDER_AVAILABLE_DELIVERY_OPTIONS = `
+  query draftOrderAvailableDeliveryOptions($input: DraftOrderAvailableDeliveryOptionsInput!) {
+    draftOrderAvailableDeliveryOptions(input: $input) {
+      availableLocalPickupOptions {
+        handle
+        title
+      }
     }
   }
 `;

@@ -346,3 +346,227 @@ test('findOrderIdTailByName surfaces a GraphQL error instead of returning null',
   const client = new ShopifyClient('US');
   await assert.rejects(() => client.findOrderIdTailByName('#9928'), /order lookup by name failed/);
 });
+
+// --- createDraftOrder: delivery shapes (TAA-68) -------------------------------
+//
+// Pins both the default/rate flow (must keep working unchanged) and the
+// pickup flow's replacement two-step shape, per tests/reject.test.js's
+// pinning precedent. TAA-50 confirmed live that DraftOrderInput.
+// deliveryMethod is entirely absent from the 2025-10 schema; these tests
+// assert the draftOrderCreate payload never sends it and that both flows
+// converge on the same shippingLine.shippingRateHandle shape.
+
+const DRAFT_ORDER_LINE_ITEMS = [{ variantId: 'gid://shopify/ProductVariant/1', quantity: 1 }];
+
+function routeGql(t, handlers) {
+  const calls = [];
+  withFetch(t, async (url, init) => {
+    const body = JSON.parse(init.body);
+    calls.push(body);
+    for (const [match, respond] of handlers) {
+      if (body.query.includes(match)) {
+        return respond(body);
+      }
+    }
+    throw new Error(`unexpected query in test router: ${body.query}`);
+  });
+  return calls;
+}
+
+function findCall(calls, match) {
+  return calls.find((c) => c.query.includes(match));
+}
+
+const DRAFT_ORDER_CREATE_OK = () =>
+  fakeResponse(200, { data: { draftOrderCreate: { draftOrder: { id: 'gid://shopify/DraftOrder/1' }, userErrors: [] } } });
+const DRAFT_ORDER_COMPLETE_OK = () =>
+  fakeResponse(200, {
+    data: {
+      draftOrderComplete: {
+        draftOrder: { createdAt: '2026-01-01T00:00:00Z', order: { id: 'gid://shopify/Order/1', name: '#1' } },
+        userErrors: [],
+      },
+    },
+  });
+
+test('createDraftOrder (no delivery override): calculates rates, creates with shippingAddress + first rate handle, no deliveryMethod', async (t) => {
+  withToken(t);
+  const calls = routeGql(t, [
+    [
+      'draftOrderCalculate',
+      () =>
+        fakeResponse(200, {
+          data: {
+            draftOrderCalculate: {
+              calculatedDraftOrder: { availableShippingRates: [{ handle: 'rate-first', title: 'Standard' }] },
+              userErrors: [],
+            },
+          },
+        }),
+    ],
+    ['mutation draftOrderCreate', DRAFT_ORDER_CREATE_OK],
+    ['draftOrderComplete', DRAFT_ORDER_COMPLETE_OK],
+  ]);
+
+  const client = new ShopifyClient('US');
+  await client.createDraftOrder('qa@example.com', DRAFT_ORDER_LINE_ITEMS, 'JJQA', 'AutoUS');
+
+  const createCall = findCall(calls, 'mutation draftOrderCreate');
+  assert.deepEqual(createCall.variables.input.shippingLine, { shippingRateHandle: 'rate-first' });
+  assert.ok(createCall.variables.input.shippingAddress, 'draftOrderCreate must send a shippingAddress');
+  assert.equal('deliveryMethod' in createCall.variables.input, false, 'deliveryMethod must never be sent — removed from DraftOrderInput in 2025-10');
+});
+
+test('createDraftOrder (rate delivery): matches the named rate, creates with shippingAddress + matched handle, no deliveryMethod', async (t) => {
+  withToken(t);
+  const calls = routeGql(t, [
+    [
+      'draftOrderCalculate',
+      (body) => {
+        assert.deepEqual(body.variables.input.lineItems, DRAFT_ORDER_LINE_ITEMS);
+        assert.ok(body.variables.input.shippingAddress, 'draftOrderCalculate must send a shippingAddress');
+        return fakeResponse(200, {
+          data: {
+            draftOrderCalculate: {
+              calculatedDraftOrder: {
+                availableShippingRates: [
+                  { handle: 'rate-standard', title: 'Standard' },
+                  { handle: 'rate-express', title: 'Express' },
+                ],
+              },
+              userErrors: [],
+            },
+          },
+        });
+      },
+    ],
+    ['mutation draftOrderCreate', DRAFT_ORDER_CREATE_OK],
+    ['draftOrderComplete', DRAFT_ORDER_COMPLETE_OK],
+  ]);
+
+  const client = new ShopifyClient('US');
+  await client.createDraftOrder('qa@example.com', DRAFT_ORDER_LINE_ITEMS, 'JJQA', 'AutoUS', { type: 'rate', title: 'Express' });
+
+  const createCall = findCall(calls, 'mutation draftOrderCreate');
+  assert.deepEqual(createCall.variables.input.shippingLine, { shippingRateHandle: 'rate-express' });
+  assert.ok(createCall.variables.input.shippingAddress, 'draftOrderCreate must send a shippingAddress for the rate flow');
+  assert.equal('deliveryMethod' in createCall.variables.input, false, 'deliveryMethod must never be sent — removed from DraftOrderInput in 2025-10');
+});
+
+test('createDraftOrder (pickup delivery): queries draftOrderAvailableDeliveryOptions with lineItems+shippingAddress, then creates with shippingLine handle, no deliveryMethod', async (t) => {
+  withToken(t);
+  const calls = routeGql(t, [
+    [
+      'draftOrderAvailableDeliveryOptions',
+      (body) => {
+        assert.deepEqual(body.variables.input.lineItems, DRAFT_ORDER_LINE_ITEMS);
+        assert.ok(body.variables.input.shippingAddress, 'draftOrderAvailableDeliveryOptions must send a shippingAddress');
+        assert.equal('email' in body.variables.input, false, 'DraftOrderAvailableDeliveryOptionsInput has no email field (confirmed live)');
+        return fakeResponse(200, {
+          data: {
+            draftOrderAvailableDeliveryOptions: {
+              availableLocalPickupOptions: [
+                { handle: 'pickup-chermside', title: 'Universal Store Chermside' },
+                { handle: 'pickup-belconnen', title: 'Universal Store Belconnen' },
+              ],
+            },
+          },
+        });
+      },
+    ],
+    ['mutation draftOrderCreate', DRAFT_ORDER_CREATE_OK],
+    ['draftOrderComplete', DRAFT_ORDER_COMPLETE_OK],
+  ]);
+
+  const client = new ShopifyClient('US');
+  await client.createDraftOrder('qa@example.com', DRAFT_ORDER_LINE_ITEMS, 'JJQA', 'AutoUS', {
+    type: 'pickup',
+    locationName: 'Universal Store Belconnen',
+  });
+
+  const createCall = findCall(calls, 'mutation draftOrderCreate');
+  assert.deepEqual(createCall.variables.input.shippingLine, { shippingRateHandle: 'pickup-belconnen' });
+  assert.ok(createCall.variables.input.shippingAddress, 'draftOrderCreate must send a shippingAddress for the pickup flow too');
+  assert.equal('deliveryMethod' in createCall.variables.input, false, 'deliveryMethod must never be sent — removed from DraftOrderInput in 2025-10');
+});
+
+test('createDraftOrder (pickup delivery): throws listing the actually fulfillment-eligible titles when the requested name has no match', async (t) => {
+  withToken(t);
+  routeGql(t, [
+    [
+      'draftOrderAvailableDeliveryOptions',
+      () =>
+        fakeResponse(200, {
+          data: {
+            draftOrderAvailableDeliveryOptions: {
+              availableLocalPickupOptions: [{ handle: 'pickup-chermside', title: 'Universal Store Chermside' }],
+            },
+          },
+        }),
+    ],
+  ]);
+
+  const client = new ShopifyClient('US');
+  await assert.rejects(
+    () =>
+      client.createDraftOrder('qa@example.com', DRAFT_ORDER_LINE_ITEMS, 'JJQA', 'AutoUS', {
+        type: 'pickup',
+        locationName: 'Universal Store Nowhere',
+      }),
+    /Pickup location "Universal Store Nowhere" not found.*Universal Store Chermside/s,
+  );
+});
+
+test('createDraftOrder (pickup delivery): surfaces a top-level GraphQL error from draftOrderAvailableDeliveryOptions instead of treating it as "no options"', async (t) => {
+  withToken(t);
+  withFetch(t, async () => fakeResponse(200, { errors: [{ message: 'boom' }] }));
+
+  const client = new ShopifyClient('US');
+  await assert.rejects(
+    () =>
+      client.createDraftOrder('qa@example.com', DRAFT_ORDER_LINE_ITEMS, 'JJQA', 'AutoUS', {
+        type: 'pickup',
+        locationName: 'Anywhere',
+      }),
+    /draftOrderAvailableDeliveryOptions failed/,
+  );
+});
+
+test('createDraftOrder (pickup delivery): surfaces a draftOrderCreate userErrors failure (e.g. a stale/invalid shippingRateHandle) instead of completing', async (t) => {
+  withToken(t);
+  routeGql(t, [
+    [
+      'draftOrderAvailableDeliveryOptions',
+      () =>
+        fakeResponse(200, {
+          data: {
+            draftOrderAvailableDeliveryOptions: {
+              availableLocalPickupOptions: [{ handle: 'pickup-chermside', title: 'Universal Store Chermside' }],
+            },
+          },
+        }),
+    ],
+    [
+      'mutation draftOrderCreate',
+      () =>
+        fakeResponse(200, {
+          data: {
+            draftOrderCreate: {
+              draftOrder: null,
+              userErrors: [{ field: ['shippingLine'], message: 'Shipping rate handle is invalid or expired' }],
+            },
+          },
+        }),
+    ],
+  ]);
+
+  const client = new ShopifyClient('US');
+  await assert.rejects(
+    () =>
+      client.createDraftOrder('qa@example.com', DRAFT_ORDER_LINE_ITEMS, 'JJQA', 'AutoUS', {
+        type: 'pickup',
+        locationName: 'Universal Store Chermside',
+      }),
+    /draftOrderCreate failed.*Shipping rate handle is invalid or expired/s,
+  );
+});

@@ -241,13 +241,11 @@ async function runShopifyOrder(config) {
         delivery = { type: "rate", title: config.delivery.title };
     }
     else if (config.delivery?.type === "pickup") {
-        const locationName = config.delivery.locationName;
-        const locations = await shopify.fetchPickupLocations();
-        const match = locations.find((location) => location.name === locationName);
-        if (!match) {
-            throw new Error(`Pickup location "${locationName}" not found. Available: ${JSON.stringify(locations.map((l) => l.name))}`);
-        }
-        delivery = { type: "pickup", locationId: match.id };
+        // TAA-68: resolution against the shop's actual fulfillment-eligible
+        // pickup options (not just "any location that exists") now happens
+        // inside ShopifyClient.createDraftOrder, since it needs the real line
+        // items to ask draftOrderAvailableDeliveryOptions the right question.
+        delivery = { type: "pickup", locationName: config.delivery.locationName };
     }
     const result = await shopify.createDraftOrder(customer.email, lineItems, customer.firstName, customer.lastName, delivery);
     console.log(`\nShopify order placed (${config.store}):`);
