@@ -1,0 +1,177 @@
+[
+  {
+    "PK": "8f2a4d62-c571-4d62-95a6-2440ca22354e",
+    "state": "QLD",
+    "street1": "42 William Farrior Place",
+    "country": "Australia",
+    "phone": "0414 697 063",
+    "updatedAt": 1788069663,
+    "SK": "ADDRESS#BILLING",
+    "origin": "PS#SHOPIFY_ECOM#10875500921124",
+    "city": "Eagle Farm",
+    "createdAt": 1788069663,
+    "customerId": "6a613fca-0176-4396-9240-50af58722a91",
+    "lastName": "AutoPS",
+    "firstName": "JJQA",
+    "postalCode": "4009",
+    "countryCode": "AU"
+  },
+  {
+    "PK": "8f2a4d62-c571-4d62-95a6-2440ca22354e",
+    "state": "QLD",
+    "street1": "42 William Farrior Place",
+    "country": "Australia",
+    "phone": "0414 697 063",
+    "updatedAt": 1788069663,
+    "origin": "PS#SHOPIFY_ECOM#10875500921124",
+    "city": "Eagle Farm",
+    "createdAt": 1788069663,
+    "emailAddress": "QAauto@perfectstranger.com.au",
+    "customerId": "6a613fca-0176-4396-9240-50af58722a91",
+    "lastName": "AutoPS",
+    "firstName": "JJQA",
+    "postalCode": "4009",
+    "SK": "ADDRESS#SHIPPING",
+    "countryCode": "AU"
+  },
+  {
+    "PK": "8f2a4d62-c571-4d62-95a6-2440ca22354e",
+    "subtotal": 20,
+    "taxPaid": 1.82,
+    "SK": "ITEM#343fdb82-c63d-4ef1-a213-bae1ce29ee4b",
+    "discountInfo": [],
+    "shopifyLineItemId": "gid://shopify/LineItem/33103041233188",
+    "updatedAt": 1788069663,
+    "grandTotal": 20,
+    "currency": "AUD",
+    "origin": "PS#SHOPIFY_ECOM#10875500921124",
+    "deliveryMethod": "STANDARD",
+    "createdAt": 1788069663,
+    "customerId": "6a613fca-0176-4396-9240-50af58722a91",
+    "status": "OPEN",
+    "sku": "33995595"
+  },
+  {
+    "PK": "8f2a4d62-c571-4d62-95a6-2440ca22354e",
+    "subtotal": 20,
+    "shipping": 10,
+    "shopifyExternalOrderId": 3331,
+    "SK": "ORDER",
+    "taxPaid": 2.73,
+    "createdAt": 1788069662,
+    "updatedAt": 1788069676,
+    "currency": "AUD",
+    "paymentMethod": [
+      {
+        "amount": 30,
+        "method": "manual"
+      }
+    ],
+    "origin": "PS#SHOPIFY_ECOM#10875500921124",
+    "grandTotal": 30,
+    "onHold": [],
+    "customerId": "6a613fca-0176-4396-9240-50af58722a91",
+    "customerEmail": "QAauto@perfectstranger.com.au",
+    "shippingTaxPaid": 0.91,
+    "status": "OPEN"
+  },
+  {
+    "PK": "8f2a4d62-c571-4d62-95a6-2440ca22354e",
+    "SK": "TRANSACTION#1788069662139",
+    "shopifyExternalOrderId": 3331,
+    "itemChanges": {
+      "added": [
+        {
+          "deliveryMethod": "STANDARD",
+          "sku": "33995595",
+          "grandTotal": 20,
+          "status": "OPEN",
+          "subtotal": 20,
+          "shopifyLineItemId": "gid://shopify/LineItem/33103041233188",
+          "taxPaid": 1.82
+        }
+      ]
+    },
+    "createdAt": 1788069662,
+    "idempotencyId": "5641a102-81e4-4569-a056-17dbaeaa463f",
+    "origin": "PS#SHOPIFY_ECOM#10875500921124",
+    "updatedAt": 1788069662,
+    "customerId": "6a613fca-0176-4396-9240-50af58722a91",
+    "event": "CREATE_ORDER",
+    "customerEmail": "QAauto@perfectstranger.com.au",
+    "category": "CHARGE",
+    "addressChanges": {
+      "shipping": {
+        "lastName": "AutoPS",
+        "country": "Australia",
+        "phone": "0414 697 063",
+        "street1": "42 William Farrior Place",
+        "postalCode": "4009",
+        "countryCode": "AU",
+        "firstName": "JJQA",
+        "state": "QLD",
+        "city": "Eagle Farm"
+      },
+      "billing": {
+        "street1": "42 William Farrior Place",
+        "country": "Australia",
+        "firstName": "JJQA",
+        "state": "QLD",
+        "city": "Eagle Farm",
+        "phone": "0414 697 063",
+        "lastName": "AutoPS",
+        "postalCode": "4009",
+        "countryCode": "AU"
+      }
+    },
+    "paymentChanges": {
+      "netChange": 30,
+      "payments": [
+        {
+          "method": "manual",
+          "amount": 30
+        }
+      ],
+      "shipping": 10,
+      "shippingTaxPaid": 0.91,
+      "taxPaid": 2.73,
+      "currency": "AUD",
+      "subtotal": 20,
+      "grandTotal": 30
+    }
+  },
+  {
+    "origin": "PS#SHOPIFY_ECOM#10875500921124",
+    "PK": "8f2a4d62-c571-4d62-95a6-2440ca22354e",
+    "SK": "TRANSACTION#1788069666639",
+    "onHoldChanges": {
+      "added": [
+        "POTENTIAL_FRAUD"
+      ]
+    },
+    "updatedAt": 1788069666,
+    "customerId": "6a613fca-0176-4396-9240-50af58722a91",
+    "event": "HOLD_ORDER",
+    "customerEmail": "QAauto@perfectstranger.com.au",
+    "createdAt": 1788069666,
+    "idempotencyId": "aa73ebf6-2493-499d-a75d-334f6ad1f125-HOLD_ORDER",
+    "category": "UPDATE"
+  },
+  {
+    "origin": "PS#SHOPIFY_ECOM#10875500921124",
+    "PK": "8f2a4d62-c571-4d62-95a6-2440ca22354e",
+    "SK": "TRANSACTION#1788069675099",
+    "createdAt": 1788069675,
+    "event": "UNHOLD_ORDER",
+    "customerId": "6a613fca-0176-4396-9240-50af58722a91",
+    "customerEmail": "QAauto@perfectstranger.com.au",
+    "onHoldChanges": {
+      "removed": [
+        "POTENTIAL_FRAUD"
+      ]
+    },
+    "updatedAt": 1788069675,
+    "idempotencyId": "c9028bc3-6725-4f21-8227-9194548fbf12-UNHOLD_ORDER",
+    "category": "UPDATE"
+  }
+]
