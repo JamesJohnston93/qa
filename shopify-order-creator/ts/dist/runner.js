@@ -69,6 +69,8 @@ const rejects_1 = require("./verify/rejects");
 const newstore_2 = require("./verify/newstore");
 const fulfilment_2 = require("./verify/fulfilment");
 const allocation_1 = require("./verify/allocation");
+const finalisation_1 = require("./verify/finalisation");
+const transactions_1 = require("./verify/transactions");
 /**
  * Polls until verifyFn(value) stops throwing VerificationError. On timeout,
  * re-throws the final VerificationError (full evidence) rather than a bare
@@ -318,6 +320,37 @@ async function runCase(config, caseDef, progress) {
             stageDone("refund", refund.elapsed);
             const cleanup = await pollVerify(() => dynamoReader.getShipmentItems(config.store, oidTail), (items) => (0, shipments_1.assertItemsRemoved)(items, caseDef.cleanupSkus, oname), poll.cleanup, dynamoInterval, "cleanup", config.verbose, (elapsed) => printProgress("cleanup", elapsed));
             stageDone("cleanup", cleanup.elapsed);
+            // --- 6a. Orders-service refund evidence (TAA-59: undeliverable/
+            // partial_undeliverable only — reject_undeliverable also has a
+            // non-empty expectedRefundSkus but reaches its refund through the
+            // reject endpoint, a different, unconfirmed-shape pathway, and is
+            // deliberately excluded here; see ts/plans/TAA-59-plan.md).
+            if (!caseDef.rejectMode) {
+                const refundSkus = Object.keys(caseDef.expectedRefundSkus);
+                const fullyUndeliverable = Object.keys(caseDef.skuQuantities).every((s) => s in caseDef.expectedRefundSkus);
+                const ordersTableRefund = await pollVerify(() => dynamoReader.getOrderRows(config.store, oidTail), (rows) => {
+                    const items = (0, dynamoReader_1.orderItemRowsFromRows)(rows);
+                    const transactions = (0, dynamoReader_1.transactionRowsFromRows)(rows);
+                    const order = (0, dynamoReader_1.orderRecordFromRows)(rows);
+                    for (const refundSku of refundSkus) {
+                        const item = items.find((i) => i.sku === refundSku);
+                        if (!item) {
+                            throw new index_1.VerificationError("orders_table.item_status", "ITEM# row present", "not found yet", `order ${oname}, sku ${refundSku}`);
+                        }
+                        (0, orders_1.assertOrderItemStatus)(item, "REFUNDED", oname);
+                        (0, transactions_1.assertTransactionPresent)(transactions, "REFUND_ITEM", oname, (0, transactions_1.refundedSkuStatusMatcher)(refundSku, "UNDELIVERABLE"));
+                    }
+                    if (fullyUndeliverable) {
+                        (0, transactions_1.assertTransactionPresent)(transactions, "REFUND_SHIPPING", oname);
+                        (0, finalisation_1.assertOrderStatus)(order, "REFUNDED", oname);
+                    }
+                    else {
+                        (0, transactions_1.assertTransactionAbsent)(transactions, "REFUND_SHIPPING", oname);
+                        (0, finalisation_1.assertOrderStatus)(order, "OPEN", oname);
+                    }
+                }, poll.ordersTableRefund, dynamoInterval, "orders_table_refund", config.verbose, (elapsed) => printProgress("orders_table_refund", elapsed));
+                stageDone("orders_table_refund", ordersTableRefund.elapsed);
+            }
         }
         else {
             const snap = await shopifyReader.getOrder(shopify, record.orderId);
