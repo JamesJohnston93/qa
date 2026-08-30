@@ -9,6 +9,9 @@ const {
   groupItemsByShipment,
   transactionRowsFromRows,
   transactionRowsByEvent,
+  orderRecordFromRows,
+  addressRowsFromRows,
+  orderItemRowsFromRows,
 } = require('../dist/readers/dynamoReader.js');
 
 function itemRow(pk, sku) {
@@ -241,5 +244,186 @@ test('transactionRowsByEvent filters a chronological list down to one event', ()
     assert.equal(transactions[0].event, 'CREATE_ORDER');
     assert.equal(transactions[0].category, 'CHARGE');
     assert.equal(transactions[0].origin, 'PS#SHOPIFY_ECOM#10875125727524');
+  });
+}
+
+// TAA-50: ORDER row (hold/payment/totals) and ADDRESS row reads.
+function orderRow(overrides = {}) {
+  return {
+    PK: 'pk1',
+    SK: 'ORDER',
+    status: 'OPEN',
+    subtotal: 50,
+    grandTotal: 60,
+    currency: 'AUD',
+    customerId: 'cust-1',
+    paymentMethod: [{ method: 'manual', amount: 60 }],
+    ...overrides,
+  };
+}
+
+test('orderRecordFromRows extracts the ORDER row (paymentMethod singular, subtotal/grandTotal/currency/customerId/status)', () => {
+  const record = orderRecordFromRows([orderRow()]);
+  assert.equal(record.status, 'OPEN');
+  assert.deepEqual(record.paymentMethod, [{ method: 'manual', amount: 60 }]);
+  assert.equal(record.subtotal, 50);
+  assert.equal(record.grandTotal, 60);
+  assert.equal(record.currency, 'AUD');
+  assert.equal(record.customerId, 'cust-1');
+  assert.deepEqual(record.onHold, []);
+});
+
+test('orderRecordFromRows normalizes onHold to [] when the field is absent (not held) — the state every pre-TAA-50 fixture is in', () => {
+  const record = orderRecordFromRows([orderRow()]); // no onHold attribute at all
+  assert.deepEqual(record.onHold, []);
+});
+
+test('orderRecordFromRows surfaces onHold as an array of reason strings when the order is held', () => {
+  const record = orderRecordFromRows([orderRow({ onHold: ['POTENTIAL_FRAUD'] })]);
+  assert.deepEqual(record.onHold, ['POTENTIAL_FRAUD']);
+});
+
+test('orderRecordFromRows returns null when no ORDER row has landed yet', () => {
+  assert.equal(orderRecordFromRows([]), null);
+  assert.equal(orderRecordFromRows([{ PK: 'pk1', SK: 'ITEM#a', sku: 'sku1' }]), null);
+});
+
+function addressRow(sk, overrides = {}) {
+  return {
+    PK: 'pk1',
+    SK: sk,
+    street1: '42 William Farrior Place',
+    phone: '0414 697 063',
+    customerId: 'cust-1',
+    firstName: 'JJQA',
+    lastName: 'AutoUS',
+    city: 'Eagle Farm',
+    state: 'QLD',
+    postalCode: '4009',
+    country: 'Australia',
+    countryCode: 'AU',
+    origin: 'US#SHOPIFY_ECOM#123',
+    createdAt: 1788000000,
+    updatedAt: 1788000000,
+    ...overrides,
+  };
+}
+
+test('addressRowsFromRows extracts both ADDRESS# rows, ignoring ORDER/ITEM#/TRANSACTION# rows', () => {
+  const rows = [
+    orderRow(),
+    addressRow('ADDRESS#BILLING'),
+    addressRow('ADDRESS#SHIPPING', { emailAddress: 'qa@example.com' }),
+    { PK: 'pk1', SK: 'ITEM#a', sku: 'sku1' },
+    { PK: 'pk1', SK: 'TRANSACTION#1', event: 'CREATE_ORDER' },
+  ];
+  const addresses = addressRowsFromRows(rows);
+  assert.equal(addresses.length, 2);
+  assert.deepEqual(
+    addresses.map((a) => a.type),
+    ['BILLING', 'SHIPPING'],
+  );
+});
+
+test('addressRowsFromRows reads emailAddress as null on BILLING (field is SHIPPING-only) and populated on SHIPPING', () => {
+  const [billing] = addressRowsFromRows([addressRow('ADDRESS#BILLING')]);
+  assert.equal(billing.emailAddress, null);
+  const [shipping] = addressRowsFromRows([addressRow('ADDRESS#SHIPPING', { emailAddress: 'qa@example.com' })]);
+  assert.equal(shipping.emailAddress, 'qa@example.com');
+});
+
+function orderItemRow(overrides = {}) {
+  return {
+    PK: 'pk1',
+    SK: `ITEM#${Math.random()}`,
+    sku: 'sku1',
+    status: 'OPEN',
+    deliveryMethod: 'STANDARD',
+    subtotal: 50,
+    grandTotal: 50,
+    discountInfo: [],
+    shopifyLineItemId: 'gid://shopify/LineItem/1',
+    ...overrides,
+  };
+}
+
+test('orderItemRowsFromRows extracts ITEM# rows, ignoring ORDER/ADDRESS#/TRANSACTION# rows', () => {
+  const rows = [orderRow(), addressRow('ADDRESS#BILLING'), orderItemRow(), orderItemRow()];
+  assert.equal(orderItemRowsFromRows(rows).length, 2);
+});
+
+test('orderItemRowsFromRows reads clickCollectStore as null on a STANDARD row and populated on a CLICKCOLLECT row', () => {
+  const [standard] = orderItemRowsFromRows([orderItemRow()]);
+  assert.equal(standard.deliveryMethod, 'STANDARD');
+  assert.equal(standard.clickCollectStore, null);
+  const [cc] = orderItemRowsFromRows([orderItemRow({ deliveryMethod: 'CLICKCOLLECT', clickCollectStore: '251' })]);
+  assert.equal(cc.deliveryMethod, 'CLICKCOLLECT');
+  assert.equal(cc.clickCollectStore, '251');
+});
+
+// TAA-50 fixture-driven tests — live captures under ts/fixtures/orders-v2/,
+// not invented shapes (see ts/signoffs/TAA-50.md).
+{
+  const fixtureDir = path.join(__dirname, '..', 'fixtures', 'orders-v2');
+  const loadFixture = (name) => JSON.parse(fs.readFileSync(path.join(fixtureDir, name), 'utf8'));
+
+  test('a fraud hold (order #9994) pins onHold: ["POTENTIAL_FRAUD"] on the ORDER row', () => {
+    const record = orderRecordFromRows(loadFixture('US-hold-fraud-9994.json'));
+    assert.deepEqual(record.onHold, ['POTENTIAL_FRAUD']);
+    assert.equal(record.status, 'OPEN'); // held is orthogonal to status — order stays OPEN while held
+  });
+
+  test('an edit-triggered outstanding-payment hold (order #9998) pins onHold: ["OUTSTANDING_PAYMENT"], and the added item carries discountInfo with grandTotal already net of the discount (no finalPrice field exists)', () => {
+    const rows = loadFixture('US-hold-outstanding-edit-9998.json');
+    const record = orderRecordFromRows(rows);
+    assert.deepEqual(record.onHold, ['OUTSTANDING_PAYMENT']);
+
+    const items = orderItemRowsFromRows(rows);
+    assert.equal(items.length, 2);
+    const discounted = items.find((i) => i.discountInfo.length > 0);
+    assert.deepEqual(discounted.discountInfo, [{ amount: 1, code: 'TAA-53 probe discount', type: 'SALE' }]);
+    assert.equal(discounted.subtotal, 50);
+    assert.equal(discounted.grandTotal, 49); // net of the $1 discount — no separate finalPrice field anywhere on the row
+    assert.equal(discounted.finalPrice, undefined);
+  });
+
+  test('a click & collect order (order #9997) pins clickCollectStore on the ITEM# row, absent from the ORDER row', () => {
+    const rows = loadFixture('US-clickcollect-9997.json');
+    const [item] = orderItemRowsFromRows(rows);
+    assert.equal(item.deliveryMethod, 'CLICKCOLLECT');
+    assert.equal(item.clickCollectStore, '251');
+
+    const record = orderRecordFromRows(rows);
+    assert.equal(record.raw.clickCollectStore, undefined); // ccStore-family fields never land on the ORDER row
+  });
+
+  test('getAddressRows-equivalent parsing on a real order pins ADDRESS#SHIPPING/ADDRESS#BILLING with matching customerId/origin, SHIPPING-only emailAddress', () => {
+    const addresses = addressRowsFromRows(loadFixture('US-clickcollect-9997.json'));
+    assert.equal(addresses.length, 2);
+    const shipping = addresses.find((a) => a.type === 'SHIPPING');
+    const billing = addresses.find((a) => a.type === 'BILLING');
+    assert.equal(shipping.emailAddress, 'QAauto@universalstore.com.au');
+    assert.equal(billing.emailAddress, null);
+    assert.equal(shipping.customerId, billing.customerId);
+    assert.equal(shipping.origin, billing.origin);
+  });
+
+  test('PS fixture (order #3323) parses with the same field names as US (no cross-store drift) for ORDER and ADDRESS rows', () => {
+    const rows = loadFixture('PS-taa50-3323.json');
+    const record = orderRecordFromRows(rows);
+    assert.equal(record.status, 'OPEN');
+    assert.deepEqual(record.paymentMethod, [{ method: 'manual', amount: 40 }]);
+    assert.equal(record.currency, 'AUD');
+
+    const addresses = addressRowsFromRows(rows);
+    assert.equal(addresses.length, 2);
+    assert.ok(addresses.every((a) => a.customerId === record.customerId));
+  });
+
+  test('pre-TAA-50 fixtures (never held) parse with onHold: [] — confirms the field is genuinely absent, not a fixture gap', () => {
+    for (const name of ['US-fulfil-9929.json', 'US-reject-9947.json', 'US-taa46-9984.json']) {
+      const record = orderRecordFromRows(loadFixture(name));
+      assert.deepEqual(record.onHold, [], `${name} should read onHold as []`);
+    }
   });
 }
