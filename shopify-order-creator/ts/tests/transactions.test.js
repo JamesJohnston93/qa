@@ -3,7 +3,12 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { transactionRowsFromRows } = require('../dist/readers/dynamoReader.js');
-const { assertTransactionPresent, assertTransactionAbsent, assertTransactionOrder } = require('../dist/verify/transactions.js');
+const {
+  assertTransactionPresent,
+  assertTransactionAbsent,
+  assertTransactionOrder,
+  refundedSkuStatusMatcher,
+} = require('../dist/verify/transactions.js');
 
 const fixtureDir = path.join(__dirname, '..', 'fixtures', 'orders-v2');
 const loadFixture = (name) => JSON.parse(fs.readFileSync(path.join(fixtureDir, name), 'utf8'));
@@ -67,4 +72,38 @@ test('assertTransactionOrder throws when an expected event never appears at all'
     () => assertTransactionOrder(transactions, ['CREATE_ORDER', 'CLOSE_ORDER'], '#9994'),
     /orders_table\.transaction_order/,
   );
+});
+
+// TAA-59: refundedSkuStatusMatcher + the REFUND_SHIPPING presence/absence
+// contract, using the two committed undeliverable fixtures.
+test('refundedSkuStatusMatcher matches the REFUND_ITEM row carrying UNDELIVERABLE for the given sku (order #9865, fully undeliverable)', () => {
+  const transactions = transactionRowsFromRows(loadFixture('US-undeliverable-9865.json'));
+  assert.doesNotThrow(() =>
+    assertTransactionPresent(transactions, 'REFUND_ITEM', '#9865', refundedSkuStatusMatcher('33788579', 'UNDELIVERABLE')),
+  );
+});
+
+test('refundedSkuStatusMatcher throws when the sku/status pair does not match any refunded entry', () => {
+  const transactions = transactionRowsFromRows(loadFixture('US-undeliverable-9865.json'));
+  assert.throws(
+    () => assertTransactionPresent(transactions, 'REFUND_ITEM', '#9865', refundedSkuStatusMatcher('33788579', 'OPEN')),
+    /orders_table\.transaction_present/,
+  );
+});
+
+test('refundedSkuStatusMatcher matches on the partial-undeliverable order too (order #9866, one of two items)', () => {
+  const transactions = transactionRowsFromRows(loadFixture('US-undeliverable-9866.json'));
+  assert.doesNotThrow(() =>
+    assertTransactionPresent(transactions, 'REFUND_ITEM', '#9866', refundedSkuStatusMatcher('33946269', 'UNDELIVERABLE')),
+  );
+});
+
+test('assertTransactionPresent finds REFUND_SHIPPING on a fully-undeliverable order (order #9865)', () => {
+  const transactions = transactionRowsFromRows(loadFixture('US-undeliverable-9865.json'));
+  assert.doesNotThrow(() => assertTransactionPresent(transactions, 'REFUND_SHIPPING', '#9865'));
+});
+
+test('assertTransactionAbsent confirms no REFUND_SHIPPING on a partial-undeliverable order (order #9866)', () => {
+  const transactions = transactionRowsFromRows(loadFixture('US-undeliverable-9866.json'));
+  assert.doesNotThrow(() => assertTransactionAbsent(transactions, 'REFUND_SHIPPING', '#9866'));
 });

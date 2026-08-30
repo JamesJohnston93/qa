@@ -134,6 +134,19 @@ export interface PollWindows {
    * single borrowed sample.
    */
   ordersService: number;
+  /**
+   * staging-orders-v2 ITEM#/ORDER/TRANSACTION# rows settle after an
+   * undeliverable refund lands (TAA-59): the ITEM# row's status reaching
+   * REFUNDED, the REFUND_ITEM transaction carrying the sku's UNDELIVERABLE
+   * status, and (for a fully-undeliverable order only) REFUND_SHIPPING plus
+   * ORDER.status REFUNDED. Only wired for the plain `undeliverable`/
+   * `partial_undeliverable` cases (see stageSequenceFor's doc comment) —
+   * never measured live yet, so 90s is a conservative first estimate, same
+   * order of magnitude as `refund` (also 90s) since both settle off the same
+   * Shopify-refund-triggered webhook chain, just different tables. Replace
+   * with a measured number once slice B of ts/plans/TAA-59-plan.md runs live.
+   */
+  ordersTableRefund: number;
 }
 
 export const DEFAULT_POLL_WINDOWS: PollWindows = {
@@ -149,6 +162,7 @@ export const DEFAULT_POLL_WINDOWS: PollWindows = {
   fulfilment: 150,
   rejectTransactions: 30,
   ordersService: 120,
+  ordersTableRefund: 90,
 };
 
 export interface RegressionConfig {

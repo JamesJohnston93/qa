@@ -37,6 +37,13 @@ exports.STAGE_FALLBACK_SECONDS = 9; // ~65s end-to-end / ~7.5 stages per case (T
  * `reject` and `reject_transactions` (no mid-flight seed — slice E's audited
  * targeted-zero happens entirely in `seed_inventory`) and keeps `inventory`,
  * since nothing moves between stores after the reject.
+ *
+ * `orders_table_refund` (TAA-59) inserts after `cleanup` only when
+ * `hasRefund && !rejectMode`: the plain undeliverable/partial_undeliverable
+ * refund path, not `reject_undeliverable`'s (that case also carries a
+ * non-empty expectedRefundSkus but reaches its refund through the reject
+ * endpoint, a different, unconfirmed-shape pathway, deliberately excluded,
+ * see ts/plans/TAA-59-plan.md).
  */
 function stageSequenceFor(hasRefund, hasFulfilment = false, rejectMode = undefined) {
     const rejectStages = rejectMode === "reallocate"
@@ -44,6 +51,9 @@ function stageSequenceFor(hasRefund, hasFulfilment = false, rejectMode = undefin
         : rejectMode === "undeliverable"
             ? ["reject", "reject_transactions"]
             : [];
+    const refundStages = hasRefund
+        ? ["refund", "cleanup", ...(rejectMode ? [] : ["orders_table_refund"])]
+        : ["no_refund"];
     return [
         "seed_inventory",
         "create_order",
@@ -51,7 +61,7 @@ function stageSequenceFor(hasRefund, hasFulfilment = false, rejectMode = undefin
         "orders_table",
         "allocation",
         ...rejectStages,
-        ...(hasRefund ? ["refund", "cleanup"] : ["no_refund"]),
+        ...refundStages,
         ...(rejectMode === "reallocate" ? [] : ["inventory"]),
         ...(hasFulfilment ? ["fulfil", "fulfilment_verify", "allocation_reflection"] : []),
     ];

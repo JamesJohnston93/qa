@@ -112,3 +112,23 @@ export function assertItemDelivery(
     );
   }
 }
+
+/**
+ * An ITEM# row's status matches exactly (TAA-59). Generic over the table's
+ * ITEM# status values — used for the undeliverable path's terminal REFUNDED
+ * status, distinct from staging-shipments' own ITEM# status field
+ * (verify/shipments.ts's assertItemsRemoved checks that table's REMOVED
+ * status; this is staging-orders-v2's REFUNDED, a different table and a
+ * different terminal value, confirmed live: US-undeliverable-9865.json/
+ * -9866.json).
+ */
+export function assertOrderItemStatus(item: OrderItemRow, expectedStatus: string, orderName: string): void {
+  if (item.status !== expectedStatus) {
+    throw new VerificationError(
+      "orders_table.item_status",
+      expectedStatus,
+      item.status,
+      `order ${orderName}, sku ${item.sku}`,
+    );
+  }
+}
