@@ -111,6 +111,29 @@ export interface PollWindows {
    * first estimate (not a measured margin) pending real numbers.
    */
   rejectTransactions: number;
+  /**
+   * staging-orders-v2 ORDER/ITEM#/TRANSACTION# row settle after an admin
+   * mutation that lands through the orders-service webhook pipeline —
+   * fulfillmentOrderHold/ReleaseHold (HOLD_ORDER/UNHOLD_ORDER) and the
+   * order-edit chain (ADD_ITEM), both TAA-57. This is a harness-wide stage
+   * (shared by holdFlow.ts and editFlow.ts), unlike REALLOCATION_SETTLE_
+   * WINDOW_SECONDS/the fulfilment windows above, which are shipment-pipeline
+   * specific and stay local to their own flow files.
+   *
+   * The ticket proposed 60s. TAA-53 measured the edit chain settling as
+   * three independent webhook deliveries out to ~42s (one sample) — a 60s
+   * window would leave only 18s of headroom on that single measurement.
+   * This project's established practice is generous headroom, not a tight
+   * fit: fulfilment is 150s against a measured 6.5-9.0s (~17-23x), reject
+   * reallocation is 240s against 16-31s (~8-15x). 120s here is a ~3x margin
+   * over the 42s figure — smaller than those precedents because 42s is
+   * itself already a slower-settling stage than fulfilment/reallocation,
+   * not because this stage is trusted more. Kept deliberately conservative
+   * pending TAA-57's own live measurements, which should be recorded here
+   * once available so this number can be tuned on evidence rather than a
+   * single borrowed sample.
+   */
+  ordersService: number;
 }
 
 export const DEFAULT_POLL_WINDOWS: PollWindows = {
@@ -125,6 +148,7 @@ export const DEFAULT_POLL_WINDOWS: PollWindows = {
   newstoreInterval: 2,
   fulfilment: 150,
   rejectTransactions: 30,
+  ordersService: 120,
 };
 
 export interface RegressionConfig {
