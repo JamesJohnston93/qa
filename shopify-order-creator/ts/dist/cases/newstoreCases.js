@@ -13,22 +13,28 @@ const variants_1 = require("../variants");
 /**
  * Builds the two NS cases for the given store, pulling from that store's
  * variant pool (needed for real Shopify price lookup during injection — see
- * flows/newstoreOrders.ts's lookupPrices). Uses the last two pool entries so
- * ns_sfs and ns_otc use distinct SKUs from each other whenever the pool has
- * at least 2 entries (falls back to the single entry otherwise). Both
- * stores' pools are small today (5 US / 4 PS) and fully claimed by
- * baselineCases.ts's cases 1-6 via modulo wraparound, so this necessarily
- * reuses a SKU literal one of those cases also uses — that's fine: NS
- * injection never touches Shopify or staging-inventory-v2, so there's no
- * shared mutable state to race with a concurrently-run baseline case.
+ * flows/newstoreOrders.ts's lookupPrices). Pinned to fixed slots 14 and 15
+ * (TAA-46 slice C) — freed up when TAA-31's reject cases closed out on slot
+ * 13 without needing them. Previously selected positionally as the pool's
+ * last two entries, which worked fine while the pool was small and static,
+ * but silently migrated ns_sfs/ns_otc to whatever the newest two slots were
+ * every time the pool grew (TAA-46's own 14->80 expansion would have moved
+ * them to slots 78/79, brand-new SKUs with no proven availability — see
+ * ts/plans/TAA-46-plan.md's "the trap"). Fixed slots mean pool growth never
+ * moves them again. The substantive reasoning from the old positional
+ * comment still holds and is kept: NS injection never touches Shopify or
+ * staging-inventory-v2, so there's no shared mutable state to race with a
+ * concurrently-run baseline case, regardless of which slots are involved.
  */
+const NS_SFS_SLOT = 14;
+const NS_OTC_SLOT = 15;
 function buildNewStoreCases(store) {
     const pool = (0, variants_1.skuPoolFor)(store);
-    if (pool.length === 0) {
-        throw new Error(`variant pool for ${store} is empty`);
+    if (pool.length <= NS_OTC_SLOT) {
+        throw new Error(`variant pool for ${store} has ${pool.length} entries, needs at least ${NS_OTC_SLOT + 1} for ns_sfs/ns_otc's pinned slots`);
     }
-    const sfsSku = pool[pool.length >= 2 ? pool.length - 2 : 0];
-    const otcSku = pool[pool.length - 1];
+    const sfsSku = pool[NS_SFS_SLOT];
+    const otcSku = pool[NS_OTC_SLOT];
     return {
         ns_sfs: {
             kind: "newstore",
