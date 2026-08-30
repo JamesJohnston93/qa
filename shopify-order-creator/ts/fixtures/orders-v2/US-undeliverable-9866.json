@@ -1,0 +1,213 @@
+[
+  {
+    "updatedAt": 1785821003,
+    "countryCode": "AU",
+    "SK": "ADDRESS#BILLING",
+    "origin": "US#SHOPIFY_ECOM#7819827314961",
+    "lastName": "AutoUS",
+    "firstName": "JJQA",
+    "city": "Eagle Farm",
+    "customerId": "87350425-01ac-4b49-9bcd-ebf8c68756e5",
+    "postalCode": "4009",
+    "street1": "42 William Farrior Place",
+    "PK": "a4b82fb6-8c09-4080-9c08-3ff6ab7cb50e",
+    "country": "Australia",
+    "phone": "0414 697 063",
+    "createdAt": 1785821003,
+    "state": "QLD"
+  },
+  {
+    "updatedAt": 1785821003,
+    "countryCode": "AU",
+    "origin": "US#SHOPIFY_ECOM#7819827314961",
+    "lastName": "AutoUS",
+    "firstName": "JJQA",
+    "city": "Eagle Farm",
+    "customerId": "87350425-01ac-4b49-9bcd-ebf8c68756e5",
+    "postalCode": "4009",
+    "street1": "42 William Farrior Place",
+    "emailAddress": "QAauto@universalstore.com.au",
+    "PK": "a4b82fb6-8c09-4080-9c08-3ff6ab7cb50e",
+    "SK": "ADDRESS#SHIPPING",
+    "country": "Australia",
+    "phone": "0414 697 063",
+    "createdAt": 1785821003,
+    "state": "QLD"
+  },
+  {
+    "subtotal": 25,
+    "shopifyLineItemId": "gid://shopify/LineItem/18844736520465",
+    "origin": "US#SHOPIFY_ECOM#7819827314961",
+    "currency": "AUD",
+    "deliveryMethod": "STANDARD",
+    "sku": "33946269",
+    "discountInfo": [],
+    "grandTotal": 25,
+    "status": "REFUNDED",
+    "updatedAt": 1785821171,
+    "customerId": "87350425-01ac-4b49-9bcd-ebf8c68756e5",
+    "SK": "ITEM#536700e3-ca5a-450d-9500-94668b5f214f",
+    "taxPaid": 2.27,
+    "PK": "a4b82fb6-8c09-4080-9c08-3ff6ab7cb50e",
+    "returnInfo": {
+      "shopifyRefundId": "gid://shopify/Refund/1054045995281",
+      "source": "Shopify"
+    },
+    "segmentAction": "SENT",
+    "createdAt": 1785821003
+  },
+  {
+    "sku": "34023587",
+    "updatedAt": 1785821003,
+    "grandTotal": 5,
+    "origin": "US#SHOPIFY_ECOM#7819827314961",
+    "currency": "AUD",
+    "deliveryMethod": "STANDARD",
+    "discountInfo": [],
+    "subtotal": 5,
+    "customerId": "87350425-01ac-4b49-9bcd-ebf8c68756e5",
+    "taxPaid": 0.45,
+    "shopifyLineItemId": "gid://shopify/LineItem/18844736553233",
+    "status": "OPEN",
+    "SK": "ITEM#5cd13efe-b326-4b87-857a-afafea4be5e8",
+    "PK": "a4b82fb6-8c09-4080-9c08-3ff6ab7cb50e",
+    "createdAt": 1785821003
+  },
+  {
+    "updatedAt": 1785821036,
+    "origin": "US#SHOPIFY_ECOM#7819827314961",
+    "currency": "AUD",
+    "subtotal": 5,
+    "shippingTaxPaid": 0.91,
+    "SK": "ORDER",
+    "grandTotal": 15,
+    "customerId": "87350425-01ac-4b49-9bcd-ebf8c68756e5",
+    "status": "OPEN",
+    "PK": "a4b82fb6-8c09-4080-9c08-3ff6ab7cb50e",
+    "shipping": 10,
+    "customerEmail": "QAauto@universalstore.com.au",
+    "taxPaid": 1.36,
+    "createdAt": 1785821003,
+    "shopifyExternalOrderId": 9866,
+    "paymentMethod": [
+      {
+        "method": "manual",
+        "amount": 40
+      }
+    ]
+  },
+  {
+    "itemChanges": {
+      "added": [
+        {
+          "grandTotal": 25,
+          "deliveryMethod": "STANDARD",
+          "subtotal": 25,
+          "shopifyLineItemId": "gid://shopify/LineItem/18844736520465",
+          "sku": "33946269",
+          "taxPaid": 2.27,
+          "status": "OPEN"
+        },
+        {
+          "grandTotal": 5,
+          "deliveryMethod": "STANDARD",
+          "subtotal": 5,
+          "shopifyLineItemId": "gid://shopify/LineItem/18844736553233",
+          "sku": "34023587",
+          "taxPaid": 0.45,
+          "status": "OPEN"
+        }
+      ]
+    },
+    "idempotencyId": "412b01ea-4551-4e81-b11c-860c782862c4",
+    "event": "CREATE_ORDER",
+    "createdAt": 1785821001,
+    "origin": "US#SHOPIFY_ECOM#7819827314961",
+    "category": "CHARGE",
+    "addressChanges": {
+      "shipping": {
+        "firstName": "JJQA",
+        "lastName": "AutoUS",
+        "country": "Australia",
+        "city": "Eagle Farm",
+        "phone": "0414 697 063",
+        "countryCode": "AU",
+        "postalCode": "4009",
+        "street1": "42 William Farrior Place",
+        "state": "QLD"
+      },
+      "billing": {
+        "firstName": "JJQA",
+        "lastName": "AutoUS",
+        "country": "Australia",
+        "city": "Eagle Farm",
+        "phone": "0414 697 063",
+        "countryCode": "AU",
+        "postalCode": "4009",
+        "street1": "42 William Farrior Place",
+        "state": "QLD"
+      }
+    },
+    "SK": "TRANSACTION#1785821001728",
+    "customerId": "87350425-01ac-4b49-9bcd-ebf8c68756e5",
+    "paymentChanges": {
+      "netChange": 40,
+      "shipping": 10,
+      "grandTotal": 40,
+      "subtotal": 30,
+      "payments": [
+        {
+          "method": "manual",
+          "amount": 40
+        }
+      ],
+      "shippingTaxPaid": 0.91,
+      "currency": "AUD",
+      "taxPaid": 3.63
+    },
+    "PK": "a4b82fb6-8c09-4080-9c08-3ff6ab7cb50e",
+    "customerEmail": "QAauto@universalstore.com.au",
+    "updatedAt": 1785821001,
+    "shopifyExternalOrderId": 9866
+  },
+  {
+    "origin": "US#SHOPIFY_ECOM#7819827314961",
+    "category": "REFUND",
+    "event": "REFUND_ITEM",
+    "itemChanges": {
+      "refunded": [
+        {
+          "grandTotal": 25,
+          "deliveryMethod": "STANDARD",
+          "subtotal": 25,
+          "id": "ITEM#536700e3-ca5a-450d-9500-94668b5f214f",
+          "shopifyLineItemId": "gid://shopify/LineItem/18844736520465",
+          "sku": "33946269",
+          "taxPaid": 2.27,
+          "status": "UNDELIVERABLE"
+        }
+      ]
+    },
+    "idempotencyId": "75d19b20-7273-41b0-a2cc-34bd83a88e70-items",
+    "updatedAt": 1785821033,
+    "paymentChanges": {
+      "netChange": -25,
+      "currency": "AUD",
+      "grandTotal": 15,
+      "subtotal": 5,
+      "taxPaid": 1.36,
+      "payments": [
+        {
+          "method": "manual",
+          "amount": 40
+        }
+      ]
+    },
+    "customerId": "87350425-01ac-4b49-9bcd-ebf8c68756e5",
+    "createdAt": 1785821033,
+    "SK": "TRANSACTION#1785821033843",
+    "PK": "a4b82fb6-8c09-4080-9c08-3ff6ab7cb50e",
+    "customerEmail": "QAauto@universalstore.com.au",
+    "shopifyRefundId": 1054045995281
+  }
+]

@@ -1,0 +1,142 @@
+[
+  {
+    "street1": "42 William Farrior Place",
+    "phone": "0414 697 063",
+    "firstName": "JJQA",
+    "updatedAt": 1788049695,
+    "state": "QLD",
+    "country": "Australia",
+    "customerId": "6a613fca-0176-4396-9240-50af58722a91",
+    "lastName": "AutoPS",
+    "PK": "9a05327b-13f8-476c-b4a1-a5c5e7dce5df",
+    "createdAt": 1788049695,
+    "postalCode": "4009",
+    "origin": "PS#SHOPIFY_ECOM#10875125727524",
+    "countryCode": "AU",
+    "city": "Eagle Farm",
+    "SK": "ADDRESS#BILLING"
+  },
+  {
+    "emailAddress": "QAauto@perfectstranger.com.au",
+    "street1": "42 William Farrior Place",
+    "phone": "0414 697 063",
+    "firstName": "JJQA",
+    "updatedAt": 1788049695,
+    "SK": "ADDRESS#SHIPPING",
+    "state": "QLD",
+    "country": "Australia",
+    "customerId": "6a613fca-0176-4396-9240-50af58722a91",
+    "lastName": "AutoPS",
+    "PK": "9a05327b-13f8-476c-b4a1-a5c5e7dce5df",
+    "createdAt": 1788049695,
+    "postalCode": "4009",
+    "origin": "PS#SHOPIFY_ECOM#10875125727524",
+    "countryCode": "AU",
+    "city": "Eagle Farm"
+  },
+  {
+    "sku": "34010884",
+    "taxPaid": 2.73,
+    "status": "OPEN",
+    "subtotal": 30,
+    "shopifyLineItemId": "gid://shopify/LineItem/33102293827876",
+    "SK": "ITEM#a2a508a6-4cad-4718-b940-28c362aaa553",
+    "updatedAt": 1788049695,
+    "currency": "AUD",
+    "grandTotal": 30,
+    "customerId": "6a613fca-0176-4396-9240-50af58722a91",
+    "PK": "9a05327b-13f8-476c-b4a1-a5c5e7dce5df",
+    "createdAt": 1788049695,
+    "deliveryMethod": "STANDARD",
+    "origin": "PS#SHOPIFY_ECOM#10875125727524",
+    "discountInfo": []
+  },
+  {
+    "grandTotal": 40,
+    "createdAt": 1788049694,
+    "shipping": 10,
+    "SK": "ORDER",
+    "taxPaid": 3.64,
+    "status": "OPEN",
+    "subtotal": 30,
+    "shopifyExternalOrderId": 3321,
+    "currency": "AUD",
+    "customerEmail": "QAauto@perfectstranger.com.au",
+    "customerId": "6a613fca-0176-4396-9240-50af58722a91",
+    "PK": "9a05327b-13f8-476c-b4a1-a5c5e7dce5df",
+    "shippingTaxPaid": 0.91,
+    "origin": "PS#SHOPIFY_ECOM#10875125727524",
+    "updatedAt": 1788049694,
+    "paymentMethod": [
+      {
+        "method": "manual",
+        "amount": 40
+      }
+    ]
+  },
+  {
+    "addressChanges": {
+      "shipping": {
+        "country": "Australia",
+        "postalCode": "4009",
+        "countryCode": "AU",
+        "phone": "0414 697 063",
+        "lastName": "AutoPS",
+        "street1": "42 William Farrior Place",
+        "city": "Eagle Farm",
+        "state": "QLD",
+        "firstName": "JJQA"
+      },
+      "billing": {
+        "firstName": "JJQA",
+        "postalCode": "4009",
+        "country": "Australia",
+        "state": "QLD",
+        "street1": "42 William Farrior Place",
+        "phone": "0414 697 063",
+        "lastName": "AutoPS",
+        "city": "Eagle Farm",
+        "countryCode": "AU"
+      }
+    },
+    "createdAt": 1788049692,
+    "shopifyExternalOrderId": 3321,
+    "category": "CHARGE",
+    "SK": "TRANSACTION#1788049692810",
+    "customerEmail": "QAauto@perfectstranger.com.au",
+    "idempotencyId": "8f82b366-79af-4779-972a-ce43edb5ac6d",
+    "customerId": "6a613fca-0176-4396-9240-50af58722a91",
+    "event": "CREATE_ORDER",
+    "PK": "9a05327b-13f8-476c-b4a1-a5c5e7dce5df",
+    "itemChanges": {
+      "added": [
+        {
+          "status": "OPEN",
+          "subtotal": 30,
+          "taxPaid": 2.73,
+          "grandTotal": 30,
+          "sku": "34010884",
+          "shopifyLineItemId": "gid://shopify/LineItem/33102293827876",
+          "deliveryMethod": "STANDARD"
+        }
+      ]
+    },
+    "updatedAt": 1788049692,
+    "origin": "PS#SHOPIFY_ECOM#10875125727524",
+    "paymentChanges": {
+      "shippingTaxPaid": 0.91,
+      "shipping": 10,
+      "netChange": 40,
+      "payments": [
+        {
+          "method": "manual",
+          "amount": 40
+        }
+      ],
+      "taxPaid": 3.64,
+      "grandTotal": 40,
+      "subtotal": 30,
+      "currency": "AUD"
+    }
+  }
+]

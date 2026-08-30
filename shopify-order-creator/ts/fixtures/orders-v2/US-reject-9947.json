@@ -1,0 +1,168 @@
+[
+  {
+    "PK": "42343a00-379f-45ac-8128-40c5e38b61aa",
+    "postalCode": "4009",
+    "customerId": "87350425-01ac-4b49-9bcd-ebf8c68756e5",
+    "updatedAt": 1787491004,
+    "firstName": "JJQA",
+    "phone": "0414 697 063",
+    "country": "Australia",
+    "state": "QLD",
+    "countryCode": "AU",
+    "origin": "US#SHOPIFY_ECOM#7881590669585",
+    "street1": "42 William Farrior Place",
+    "lastName": "AutoUS",
+    "SK": "ADDRESS#BILLING",
+    "createdAt": 1787491004,
+    "city": "Eagle Farm"
+  },
+  {
+    "PK": "42343a00-379f-45ac-8128-40c5e38b61aa",
+    "postalCode": "4009",
+    "customerId": "87350425-01ac-4b49-9bcd-ebf8c68756e5",
+    "createdAt": 1787491003,
+    "firstName": "JJQA",
+    "phone": "0414 697 063",
+    "country": "Australia",
+    "SK": "ADDRESS#SHIPPING",
+    "state": "QLD",
+    "emailAddress": "QAauto@universalstore.com.au",
+    "countryCode": "AU",
+    "origin": "US#SHOPIFY_ECOM#7881590669585",
+    "updatedAt": 1787491003,
+    "street1": "42 William Farrior Place",
+    "lastName": "AutoUS",
+    "city": "Eagle Farm"
+  },
+  {
+    "PK": "42343a00-379f-45ac-8128-40c5e38b61aa",
+    "taxPaid": 5.455,
+    "customerId": "87350425-01ac-4b49-9bcd-ebf8c68756e5",
+    "createdAt": 1787491003,
+    "SK": "ITEM#07f0c16d-d266-4265-85d1-e31dffaa52c1",
+    "subtotal": 60,
+    "currency": "AUD",
+    "origin": "US#SHOPIFY_ECOM#7881590669585",
+    "sku": "33775371",
+    "updatedAt": 1787491003,
+    "grandTotal": 60,
+    "status": "OPEN",
+    "discountInfo": [],
+    "shopifyLineItemId": "gid://shopify/LineItem/18932968390929",
+    "deliveryMethod": "STANDARD"
+  },
+  {
+    "SK": "ITEM#eb1121e0-12f5-4999-941b-94cb369a9bd8",
+    "PK": "42343a00-379f-45ac-8128-40c5e38b61aa",
+    "taxPaid": 5.455,
+    "customerId": "87350425-01ac-4b49-9bcd-ebf8c68756e5",
+    "createdAt": 1787491003,
+    "subtotal": 60,
+    "currency": "AUD",
+    "origin": "US#SHOPIFY_ECOM#7881590669585",
+    "sku": "33775371",
+    "updatedAt": 1787491003,
+    "grandTotal": 60,
+    "status": "OPEN",
+    "discountInfo": [],
+    "shopifyLineItemId": "gid://shopify/LineItem/18932968390929",
+    "deliveryMethod": "STANDARD"
+  },
+  {
+    "customerEmail": "QAauto@universalstore.com.au",
+    "PK": "42343a00-379f-45ac-8128-40c5e38b61aa",
+    "shipping": 10,
+    "customerId": "87350425-01ac-4b49-9bcd-ebf8c68756e5",
+    "grandTotal": 130,
+    "createdAt": 1787491002,
+    "taxPaid": 11.82,
+    "shopifyExternalOrderId": 9947,
+    "SK": "ORDER",
+    "currency": "AUD",
+    "origin": "US#SHOPIFY_ECOM#7881590669585",
+    "paymentMethod": [
+      {
+        "method": "manual",
+        "amount": 130
+      }
+    ],
+    "updatedAt": 1787491002,
+    "status": "OPEN",
+    "shippingTaxPaid": 0.91,
+    "subtotal": 120
+  },
+  {
+    "customerEmail": "QAauto@universalstore.com.au",
+    "PK": "42343a00-379f-45ac-8128-40c5e38b61aa",
+    "customerId": "87350425-01ac-4b49-9bcd-ebf8c68756e5",
+    "updatedAt": 1787490999,
+    "itemChanges": {
+      "added": [
+        {
+          "grandTotal": 60,
+          "deliveryMethod": "STANDARD",
+          "subtotal": 60,
+          "shopifyLineItemId": "gid://shopify/LineItem/18932968390929",
+          "sku": "33775371",
+          "taxPaid": 5.455,
+          "status": "OPEN"
+        },
+        {
+          "grandTotal": 60,
+          "deliveryMethod": "STANDARD",
+          "subtotal": 60,
+          "shopifyLineItemId": "gid://shopify/LineItem/18932968390929",
+          "sku": "33775371",
+          "taxPaid": 5.455,
+          "status": "OPEN"
+        }
+      ]
+    },
+    "shopifyExternalOrderId": 9947,
+    "paymentChanges": {
+      "netChange": 130,
+      "shipping": 10,
+      "grandTotal": 130,
+      "subtotal": 120,
+      "payments": [
+        {
+          "method": "manual",
+          "amount": 130
+        }
+      ],
+      "shippingTaxPaid": 0.91,
+      "currency": "AUD",
+      "taxPaid": 11.82
+    },
+    "origin": "US#SHOPIFY_ECOM#7881590669585",
+    "event": "CREATE_ORDER",
+    "createdAt": 1787490999,
+    "category": "CHARGE",
+    "SK": "TRANSACTION#1787490999642",
+    "idempotencyId": "ba7bbba2-a354-47a3-a80e-a3c35dec6eea",
+    "addressChanges": {
+      "shipping": {
+        "firstName": "JJQA",
+        "lastName": "AutoUS",
+        "country": "Australia",
+        "city": "Eagle Farm",
+        "phone": "0414 697 063",
+        "countryCode": "AU",
+        "postalCode": "4009",
+        "street1": "42 William Farrior Place",
+        "state": "QLD"
+      },
+      "billing": {
+        "firstName": "JJQA",
+        "lastName": "AutoUS",
+        "country": "Australia",
+        "city": "Eagle Farm",
+        "phone": "0414 697 063",
+        "countryCode": "AU",
+        "postalCode": "4009",
+        "street1": "42 William Farrior Place",
+        "state": "QLD"
+      }
+    }
+  }
+]

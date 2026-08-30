@@ -1,0 +1,318 @@
+[
+  {
+    "SK": "ADDRESS#BILLING",
+    "countryCode": "AU",
+    "createdAt": 1787492668,
+    "PK": "d7cf4b17-3bbd-4408-a990-ae5e19e01d27",
+    "city": "Eagle Farm",
+    "customerId": "87350425-01ac-4b49-9bcd-ebf8c68756e5",
+    "country": "Australia",
+    "phone": "0414 697 063",
+    "lastName": "AutoUS",
+    "street1": "42 William Farrior Place",
+    "state": "QLD",
+    "updatedAt": 1787492668,
+    "origin": "US#SHOPIFY_ECOM#7881631498513",
+    "firstName": "JJQA",
+    "postalCode": "4009"
+  },
+  {
+    "emailAddress": "QAauto@universalstore.com.au",
+    "SK": "ADDRESS#SHIPPING",
+    "countryCode": "AU",
+    "createdAt": 1787492668,
+    "PK": "d7cf4b17-3bbd-4408-a990-ae5e19e01d27",
+    "city": "Eagle Farm",
+    "customerId": "87350425-01ac-4b49-9bcd-ebf8c68756e5",
+    "country": "Australia",
+    "phone": "0414 697 063",
+    "lastName": "AutoUS",
+    "street1": "42 William Farrior Place",
+    "state": "QLD",
+    "updatedAt": 1787492668,
+    "origin": "US#SHOPIFY_ECOM#7881631498513",
+    "firstName": "JJQA",
+    "postalCode": "4009"
+  },
+  {
+    "segmentAction": "SENT",
+    "deliveryMethod": "STANDARD",
+    "subtotal": 60,
+    "discountInfo": [],
+    "status": "REFUNDED",
+    "createdAt": 1787492668,
+    "taxPaid": 5.455,
+    "sku": "33775371",
+    "PK": "d7cf4b17-3bbd-4408-a990-ae5e19e01d27",
+    "grandTotal": 60,
+    "returnInfo": {
+      "shopifyRefundId": "gid://shopify/Refund/1056595312913",
+      "source": "Shopify"
+    },
+    "customerId": "87350425-01ac-4b49-9bcd-ebf8c68756e5",
+    "shopifyLineItemId": "gid://shopify/LineItem/18933053456657",
+    "origin": "US#SHOPIFY_ECOM#7881631498513",
+    "currency": "AUD",
+    "updatedAt": 1787492913,
+    "SK": "ITEM#18deef83-33f0-4e3f-a068-5581ac575273"
+  },
+  {
+    "segmentAction": "SENT",
+    "deliveryMethod": "STANDARD",
+    "subtotal": 60,
+    "discountInfo": [],
+    "status": "REFUNDED",
+    "createdAt": 1787492668,
+    "taxPaid": 5.455,
+    "sku": "33775371",
+    "PK": "d7cf4b17-3bbd-4408-a990-ae5e19e01d27",
+    "grandTotal": 60,
+    "customerId": "87350425-01ac-4b49-9bcd-ebf8c68756e5",
+    "shopifyLineItemId": "gid://shopify/LineItem/18933053456657",
+    "returnInfo": {
+      "shopifyRefundId": "gid://shopify/Refund/1056595345681",
+      "source": "Shopify"
+    },
+    "origin": "US#SHOPIFY_ECOM#7881631498513",
+    "currency": "AUD",
+    "SK": "ITEM#4175fe0e-073e-433d-9df6-f3b334ded228",
+    "updatedAt": 1787492913
+  },
+  {
+    "paymentMethod": [
+      {
+        "method": "manual",
+        "amount": 130
+      }
+    ],
+    "status": "REFUNDED",
+    "updatedAt": 1787492852,
+    "PK": "d7cf4b17-3bbd-4408-a990-ae5e19e01d27",
+    "taxPaid": 0,
+    "customerId": "87350425-01ac-4b49-9bcd-ebf8c68756e5",
+    "customerEmail": "QAauto@universalstore.com.au",
+    "shipping": 0,
+    "subtotal": 0,
+    "SK": "ORDER",
+    "origin": "US#SHOPIFY_ECOM#7881631498513",
+    "shopifyExternalOrderId": 9952,
+    "createdAt": 1787492667,
+    "currency": "AUD",
+    "grandTotal": 0,
+    "shippingTaxPaid": 0
+  },
+  {
+    "category": "CHARGE",
+    "updatedAt": 1787492664,
+    "SK": "TRANSACTION#1787492664626",
+    "PK": "d7cf4b17-3bbd-4408-a990-ae5e19e01d27",
+    "customerId": "87350425-01ac-4b49-9bcd-ebf8c68756e5",
+    "customerEmail": "QAauto@universalstore.com.au",
+    "event": "CREATE_ORDER",
+    "idempotencyId": "9601a914-675a-4bb7-b324-80446f9a3d9c",
+    "itemChanges": {
+      "added": [
+        {
+          "grandTotal": 60,
+          "deliveryMethod": "STANDARD",
+          "subtotal": 60,
+          "shopifyLineItemId": "gid://shopify/LineItem/18933053456657",
+          "sku": "33775371",
+          "taxPaid": 5.455,
+          "status": "OPEN"
+        },
+        {
+          "grandTotal": 60,
+          "deliveryMethod": "STANDARD",
+          "subtotal": 60,
+          "shopifyLineItemId": "gid://shopify/LineItem/18933053456657",
+          "sku": "33775371",
+          "taxPaid": 5.455,
+          "status": "OPEN"
+        }
+      ]
+    },
+    "createdAt": 1787492664,
+    "origin": "US#SHOPIFY_ECOM#7881631498513",
+    "shopifyExternalOrderId": 9952,
+    "paymentChanges": {
+      "netChange": 130,
+      "shipping": 10,
+      "grandTotal": 130,
+      "subtotal": 120,
+      "payments": [
+        {
+          "method": "manual",
+          "amount": 130
+        }
+      ],
+      "shippingTaxPaid": 0.91,
+      "currency": "AUD",
+      "taxPaid": 11.82
+    },
+    "addressChanges": {
+      "shipping": {
+        "firstName": "JJQA",
+        "lastName": "AutoUS",
+        "country": "Australia",
+        "city": "Eagle Farm",
+        "phone": "0414 697 063",
+        "countryCode": "AU",
+        "postalCode": "4009",
+        "street1": "42 William Farrior Place",
+        "state": "QLD"
+      },
+      "billing": {
+        "firstName": "JJQA",
+        "lastName": "AutoUS",
+        "country": "Australia",
+        "city": "Eagle Farm",
+        "phone": "0414 697 063",
+        "countryCode": "AU",
+        "postalCode": "4009",
+        "street1": "42 William Farrior Place",
+        "state": "QLD"
+      }
+    }
+  },
+  {
+    "itemChanges": {
+      "refunded": [
+        {
+          "grandTotal": 60,
+          "deliveryMethod": "STANDARD",
+          "subtotal": 60,
+          "id": "ITEM#18deef83-33f0-4e3f-a068-5581ac575273",
+          "shopifyLineItemId": "gid://shopify/LineItem/18933053456657",
+          "sku": "33775371",
+          "taxPaid": 5.455,
+          "status": "UNDELIVERABLE"
+        }
+      ]
+    },
+    "updatedAt": 1787492847,
+    "paymentChanges": {
+      "netChange": -60,
+      "currency": "AUD",
+      "grandTotal": 70,
+      "subtotal": 60,
+      "taxPaid": 6.37,
+      "payments": [
+        {
+          "method": "manual",
+          "amount": 130
+        }
+      ]
+    },
+    "futuraOrderInfo": [
+      {
+        "dnNo": 236534,
+        "reason": "REFUND"
+      },
+      {
+        "dnNo": 236535,
+        "reason": "REFUND"
+      }
+    ],
+    "event": "REFUND_ITEM",
+    "PK": "d7cf4b17-3bbd-4408-a990-ae5e19e01d27",
+    "customerId": "87350425-01ac-4b49-9bcd-ebf8c68756e5",
+    "customerEmail": "QAauto@universalstore.com.au",
+    "category": "REFUND",
+    "origin": "US#SHOPIFY_ECOM#7881631498513",
+    "shopifyRefundId": 1056595312913,
+    "SK": "TRANSACTION#1787492763476",
+    "idempotencyId": "ee33110a-b4df-4eb1-ad86-09089655e9b8-items",
+    "createdAt": 1787492763
+  },
+  {
+    "event": "REFUND_SHIPPING",
+    "segmentAction": "SENT",
+    "shopifyRefundId": 1056595345681,
+    "updatedAt": 1787492914,
+    "PK": "d7cf4b17-3bbd-4408-a990-ae5e19e01d27",
+    "status": "OPEN",
+    "customerId": "87350425-01ac-4b49-9bcd-ebf8c68756e5",
+    "customerEmail": "QAauto@universalstore.com.au",
+    "futuraOrderInfo": [
+      {
+        "dnNo": 236536,
+        "reason": "REFUND"
+      },
+      {
+        "dnNo": 236537,
+        "reason": "REFUND"
+      }
+    ],
+    "SK": "TRANSACTION#1787492828407",
+    "paymentChanges": {
+      "netChange": 10,
+      "shipping": 0,
+      "grandTotal": 0,
+      "subtotal": 0,
+      "payments": [
+        {
+          "method": "manual",
+          "amount": 130
+        }
+      ],
+      "shippingTaxPaid": 0,
+      "currency": "AUD",
+      "taxPaid": 0
+    },
+    "createdAt": 1787492828,
+    "idempotencyId": "fac9367b-db1d-4e6b-9eee-a124d8edb5af-shipping",
+    "category": "REFUND",
+    "origin": "US#SHOPIFY_ECOM#7881631498513"
+  },
+  {
+    "futuraOrderInfo": [
+      {
+        "dnNo": 236538,
+        "reason": "REFUND"
+      },
+      {
+        "dnNo": 236539,
+        "reason": "REFUND"
+      }
+    ],
+    "shopifyRefundId": 1056595345681,
+    "event": "REFUND_ITEM",
+    "paymentChanges": {
+      "netChange": -70,
+      "currency": "AUD",
+      "grandTotal": 0,
+      "subtotal": 0,
+      "taxPaid": 0,
+      "payments": [
+        {
+          "method": "manual",
+          "amount": 130
+        }
+      ]
+    },
+    "PK": "d7cf4b17-3bbd-4408-a990-ae5e19e01d27",
+    "idempotencyId": "fac9367b-db1d-4e6b-9eee-a124d8edb5af-items",
+    "SK": "TRANSACTION#1787492835044",
+    "createdAt": 1787492835,
+    "customerId": "87350425-01ac-4b49-9bcd-ebf8c68756e5",
+    "updatedAt": 1787492905,
+    "customerEmail": "QAauto@universalstore.com.au",
+    "itemChanges": {
+      "refunded": [
+        {
+          "grandTotal": 60,
+          "deliveryMethod": "STANDARD",
+          "subtotal": 60,
+          "id": "ITEM#4175fe0e-073e-433d-9df6-f3b334ded228",
+          "shopifyLineItemId": "gid://shopify/LineItem/18933053456657",
+          "sku": "33775371",
+          "taxPaid": 5.455,
+          "status": "UNDELIVERABLE"
+        }
+      ]
+    },
+    "category": "REFUND",
+    "origin": "US#SHOPIFY_ECOM#7881631498513"
+  }
+]
