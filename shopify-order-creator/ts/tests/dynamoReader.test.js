@@ -1,11 +1,14 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const {
   orderSkuQuantitiesFromRows,
   orderPkFromRows,
   shipmentSummariesFromRows,
   groupItemsByShipment,
   transactionRowsFromRows,
+  transactionRowsByEvent,
 } = require('../dist/readers/dynamoReader.js');
 
 function itemRow(pk, sku) {
@@ -135,10 +138,108 @@ test('transactionRowsFromRows extracts only TRANSACTION# rows, normalizing event
 test('transactionRowsFromRows defaults shipmentItemInfo to [] for events that carry none (e.g. bare REALLOCATION rows)', () => {
   const rows = [{ PK: 'pk1', SK: 'TRANSACTION#1', event: 'REALLOCATION' }];
   assert.deepEqual(transactionRowsFromRows(rows), [
-    { sortKey: 'TRANSACTION#1', event: 'REALLOCATION', shipmentItemInfo: [], raw: rows[0] },
+    { pk: 'pk1', sk: 'TRANSACTION#1', event: 'REALLOCATION', category: '', origin: '', idempotencyId: '', shipmentItemInfo: [], raw: rows[0] },
   ]);
+});
+
+// TAA-48: real envelope fields captured live from staging-orders-v2
+// (ts/signoffs/TAA-48-slice-a.md, order #9947) — confirmed shared with
+// staging-shipments, not orders-v2-specific.
+test('transactionRowsFromRows extracts the shared envelope (pk/category/origin/idempotencyId), same fields on either table', () => {
+  const row = {
+    PK: '42343a00-379f-45ac-8128-40c5e38b61aa',
+    SK: 'TRANSACTION#1787490999642',
+    event: 'CREATE_ORDER',
+    category: 'CHARGE',
+    origin: 'US#SHOPIFY_ECOM#7881590669585',
+    idempotencyId: 'ba7bbba2-a354-47a3-a80e-a3c35dec6eea',
+  };
+  const [transaction] = transactionRowsFromRows([row]);
+  assert.equal(transaction.pk, '42343a00-379f-45ac-8128-40c5e38b61aa');
+  assert.equal(transaction.sk, 'TRANSACTION#1787490999642');
+  assert.equal(transaction.category, 'CHARGE');
+  assert.equal(transaction.origin, 'US#SHOPIFY_ECOM#7881590669585');
+  assert.equal(transaction.idempotencyId, 'ba7bbba2-a354-47a3-a80e-a3c35dec6eea');
+  assert.deepEqual(transaction.shipmentItemInfo, []);
 });
 
 test('transactionRowsFromRows returns [] when there are no TRANSACTION# rows', () => {
   assert.deepEqual(transactionRowsFromRows([{ PK: 'pk1', SK: 'ITEM#a' }]), []);
 });
+
+test('transactionRowsByEvent filters a chronological list down to one event', () => {
+  const rows = [
+    { PK: 'pk1', SK: 'TRANSACTION#1', event: 'CREATE_ORDER' },
+    { PK: 'pk1', SK: 'TRANSACTION#2', event: 'REFUND_ITEM' },
+    { PK: 'pk1', SK: 'TRANSACTION#3', event: 'REFUND_ITEM' },
+  ];
+  const transactions = transactionRowsFromRows(rows);
+  assert.deepEqual(
+    transactionRowsByEvent(transactions, 'REFUND_ITEM').map((t) => t.sk),
+    ['TRANSACTION#2', 'TRANSACTION#3'],
+  );
+  assert.deepEqual(transactionRowsByEvent(transactions, 'NO_SUCH_EVENT'), []);
+});
+
+// TAA-48 slice B — fixture-driven, against the real staging-orders-v2 rows
+// captured in slice A (ts/signoffs/TAA-48-slice-a.md / fixtures/orders-v2/).
+// Not invented shapes; these pin what staging actually returned.
+{
+  const fixtureDir = path.join(__dirname, '..', 'fixtures', 'orders-v2');
+  const loadFixture = (name) => JSON.parse(fs.readFileSync(path.join(fixtureDir, name), 'utf8'));
+
+  test('getOrderTransactions composition (getOrderRows + transactionRowsFromRows) on a fulfil-path order: CREATE_ORDER only', () => {
+    const rows = loadFixture('US-fulfil-9929.json');
+    const transactions = transactionRowsFromRows(rows);
+    assert.equal(transactions.length, 1);
+    assert.equal(transactions[0].event, 'CREATE_ORDER');
+    assert.equal(transactions[0].category, 'CHARGE');
+    assert.equal(transactions[0].origin, 'US#SHOPIFY_ECOM#7881449210129');
+    // Finding 1 (slice A): fulfilment produces NO staging-orders-v2 transaction,
+    // even though this order is genuinely FULFILLED in staging-shipments.
+    assert.deepEqual(
+      transactions.map((t) => t.event),
+      ['CREATE_ORDER'],
+    );
+  });
+
+  test('a plain reject/reallocate order (no undeliverable outcome) also shows CREATE_ORDER only on staging-orders-v2', () => {
+    const rows = loadFixture('US-reject-9947.json');
+    const transactions = transactionRowsFromRows(rows);
+    assert.deepEqual(
+      transactions.map((t) => t.event),
+      ['CREATE_ORDER'],
+    );
+  });
+
+  test('a reject that resolves UNDELIVERABLE shows the refund it triggers (order #9952: CREATE_ORDER, REFUND_ITEM x2, REFUND_SHIPPING)', () => {
+    const rows = loadFixture('US-reject-9952.json');
+    const transactions = transactionRowsFromRows(rows);
+    assert.deepEqual(
+      transactions.map((t) => t.event),
+      ['CREATE_ORDER', 'REFUND_ITEM', 'REFUND_SHIPPING', 'REFUND_ITEM'],
+    );
+    assert.equal(transactionRowsByEvent(transactions, 'REFUND_ITEM').length, 2);
+    // chronological, not re-sorted: SK order as returned by the Query
+    assert.deepEqual(
+      transactions.map((t) => t.sk),
+      [...transactions].sort((a, b) => (a.sk < b.sk ? -1 : 1)).map((t) => t.sk),
+    );
+  });
+
+  test('a full undeliverable order (#9865) carries REFUND_SHIPPING; a partial one (#9866) does not', () => {
+    const full = transactionRowsFromRows(loadFixture('US-undeliverable-9865.json'));
+    const partial = transactionRowsFromRows(loadFixture('US-undeliverable-9866.json'));
+    assert.deepEqual(transactionRowsByEvent(full, 'REFUND_SHIPPING').map((t) => t.category), ['REFUND']);
+    assert.equal(transactionRowsByEvent(partial, 'REFUND_SHIPPING').length, 0);
+    assert.equal(transactionRowsByEvent(partial, 'REFUND_ITEM').length, 1);
+  });
+
+  test('PS fixture parses with the same field names as US (no cross-store drift)', () => {
+    const transactions = transactionRowsFromRows(loadFixture('PS-taa46-3321.json'));
+    assert.equal(transactions.length, 1);
+    assert.equal(transactions[0].event, 'CREATE_ORDER');
+    assert.equal(transactions[0].category, 'CHARGE');
+    assert.equal(transactions[0].origin, 'PS#SHOPIFY_ECOM#10875125727524');
+  });
+}

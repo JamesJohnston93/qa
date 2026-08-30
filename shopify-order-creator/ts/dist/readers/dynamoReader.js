@@ -43,6 +43,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.DynamoReader = exports.REMOVED = exports.UNDELIVERABLE = void 0;
 exports.transactionRowsFromRows = transactionRowsFromRows;
+exports.transactionRowsByEvent = transactionRowsByEvent;
 exports.orderSkuQuantitiesFromRows = orderSkuQuantitiesFromRows;
 exports.orderPkFromRows = orderPkFromRows;
 exports.shipmentSummariesFromRows = shipmentSummariesFromRows;
@@ -61,8 +62,12 @@ exports.UNDELIVERABLE = "UNDELIVERABLE";
  */
 exports.REMOVED = "REMOVED";
 /**
- * `TRANSACTION#` rows -> TransactionRow[]. Pure — offline-testable, same
- * split as shipmentSummariesFromRows/ShipmentItem above.
+ * `TRANSACTION#` rows -> TransactionRow[], in the order given (a Query
+ * against either table returns rows in ascending sort-key order, i.e.
+ * already chronological — this does not re-sort). Pure — offline-testable,
+ * same split as shipmentSummariesFromRows/ShipmentItem above, and
+ * table-agnostic (TAA-48): reused for staging-orders-v2 rows below with no
+ * change, since both tables share the same envelope (see TransactionRow).
  */
 function transactionRowsFromRows(rows) {
     const transactions = [];
@@ -72,13 +77,21 @@ function transactionRowsFromRows(rows) {
             continue;
         }
         transactions.push({
-            sortKey: sk,
+            pk: String(row.PK ?? ""),
+            sk,
             event: String(row.event ?? ""),
+            category: String(row.category ?? ""),
+            origin: String(row.origin ?? ""),
+            idempotencyId: String(row.idempotencyId ?? ""),
             shipmentItemInfo: Array.isArray(row.shipmentItemInfo) ? row.shipmentItemInfo : [],
             raw: row,
         });
     }
     return transactions;
+}
+/** Filter form for a chronological TransactionRow[] — e.g. isolate just the CREATE_ORDER row(s). Pure. */
+function transactionRowsByEvent(transactions, event) {
+    return transactions.filter((t) => t.event === event);
 }
 function originFor(store, orderIdTail) {
     return `${store}#SHOPIFY_ECOM#${orderIdTail}`;
@@ -186,6 +199,21 @@ class DynamoReader {
     async getOrderPk(store, orderIdTail) {
         const rows = await this.getOrderRows(store, orderIdTail);
         return orderPkFromRows(rows);
+    }
+    /**
+     * `TRANSACTION#` rows for an order from staging-orders-v2 (TAA-48) —
+     * chronological (see transactionRowsFromRows). Unlike getTransactionsByPk
+     * (staging-shipments, needs its own query once the PK is known), this
+     * needs no separate query at all: getOrderRows already fetches every row
+     * for the order via origin_index, TRANSACTION# rows included — same
+     * composition pattern as getOrderSkuQuantities/getOrderPk above. A caller
+     * with an already-resolved PK but no store/orderIdTail has no way to have
+     * gotten that PK without already holding this same row set, so there is
+     * no "ByPk" sibling here the way there is for staging-shipments.
+     */
+    async getOrderTransactions(store, orderIdTail) {
+        const rows = await this.getOrderRows(store, orderIdTail);
+        return transactionRowsFromRows(rows);
     }
     /**
      * ITEM# rows for an order from staging-shipments, normalized with the
