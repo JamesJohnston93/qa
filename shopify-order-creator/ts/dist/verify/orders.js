@@ -6,6 +6,7 @@ exports.assertOrdersTableAlignment = assertOrdersTableAlignment;
 exports.assertPaymentsSumToGrandTotal = assertPaymentsSumToGrandTotal;
 exports.assertBothAddressesPresent = assertBothAddressesPresent;
 exports.assertItemDelivery = assertItemDelivery;
+exports.assertOrderItemStatus = assertOrderItemStatus;
 const shopifyReader_1 = require("../readers/shopifyReader");
 const index_1 = require("./index");
 function mapsEqual(a, b) {
@@ -79,5 +80,19 @@ function assertItemDelivery(item, expectedDeliveryMethod, expectedClickCollectSt
     }
     if (item.clickCollectStore !== expectedClickCollectStore) {
         throw new index_1.VerificationError("orders_table.item_click_collect_store", expectedClickCollectStore, item.clickCollectStore, `order ${orderName}, sku ${item.sku}`);
+    }
+}
+/**
+ * An ITEM# row's status matches exactly (TAA-59). Generic over the table's
+ * ITEM# status values — used for the undeliverable path's terminal REFUNDED
+ * status, distinct from staging-shipments' own ITEM# status field
+ * (verify/shipments.ts's assertItemsRemoved checks that table's REMOVED
+ * status; this is staging-orders-v2's REFUNDED, a different table and a
+ * different terminal value, confirmed live: US-undeliverable-9865.json/
+ * -9866.json).
+ */
+function assertOrderItemStatus(item, expectedStatus, orderName) {
+    if (item.status !== expectedStatus) {
+        throw new index_1.VerificationError("orders_table.item_status", expectedStatus, item.status, `order ${orderName}, sku ${item.sku}`);
     }
 }

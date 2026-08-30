@@ -27,6 +27,18 @@ test('assertOrderStatus throws orders_table.exists on a null record', () => {
   assert.throws(() => assertOrderStatus(null, 'OPEN', '#9999'), /orders_table\.exists/);
 });
 
+// TAA-59: the undeliverable refund path's ORDER.status contract — REFUNDED
+// when the whole order went undeliverable, OPEN when only some items did.
+test('assertOrderStatus passes REFUNDED for a fully-undeliverable order (order #9865)', () => {
+  const record = orderRecordFromRows(loadFixture('US-undeliverable-9865.json'));
+  assert.doesNotThrow(() => assertOrderStatus(record, 'REFUNDED', '#9865'));
+});
+
+test('assertOrderStatus passes OPEN for a partial-undeliverable order (order #9866)', () => {
+  const record = orderRecordFromRows(loadFixture('US-undeliverable-9866.json'));
+  assert.doesNotThrow(() => assertOrderStatus(record, 'OPEN', '#9866'));
+});
+
 // FINDING (see verify/finalisation.ts module doc comment): the finalisation
 // signal is ORDER.status -> FULFILLED, not a TRANSACTION# event — no
 // finalisation transaction row exists in any fixture, including this one.

@@ -61,6 +61,52 @@ stale-worktree situation recurs, check `git worktree list` and whether
 `.git/worktrees/<name>` actually exists before assuming a `git checkout` in
 the visible `GitHub/qa` directory is safe to do alone.
 
+## TAA-59 sign-off (2026-08-30/31) — orders-service assertions on the undeliverable cases, TC25 closed as null result
+
+Full detail in `ts/signoffs/TAA-59.md` — read that first. Parent workstream
+TAA-49 (orders-service cases). Summary only below.
+
+**TC25 — null result, no code.** No fulfil-shaped `TRANSACTION#` event exists
+on `staging-orders-v2` under any spelling (confirmed across four fixtures,
+both stores) — `SHIPMENT_FULFILLED` is a `staging-shipments` name, not an
+orders-v2 one. The item-status half was already covered by
+`assertOrderItemsFulfilled` before this ticket.
+
+**TC26 — built and live-confirmed.** New `orders_table_refund` stage, wired
+into `runner.ts` immediately after `cleanup`, on the `undeliverable`/
+`partial_undeliverable` cases only (`reject_undeliverable` deliberately
+excluded — its refund reaches orders-v2 through the reject endpoint, a
+different, unconfirmed-shape pathway). Asserts: the undeliverable sku's
+`ITEM#` row status reaches `REFUNDED` (`orders_table.item_status`, new); its
+`REFUND_ITEM` transaction carries `UNDELIVERABLE` for that sku
+(`refundedSkuStatusMatcher`, new, `verify/transactions.ts`); and, branching
+on whether the whole order or only part of it went undeliverable,
+`REFUND_SHIPPING` presence + `ORDER.status REFUNDED` (full) versus
+`REFUND_SHIPPING` absence + `ORDER.status OPEN` (partial) — both already
+generic assertions (`assertTransactionPresent`/`Absent`, `assertOrderStatus`
+from TAA-48/52), reused as-is.
+
+**Live-confirmed both stores, 4 samples:** US `undeliverable` #10010/#10016
+and PS #3337 all settled `orders_table_refund` in **3.1s**; US
+`partial_undeliverable` #10009/#10017 and PS #3338 all settled in **0.0s**
+(the data had already landed by the time the preceding `cleanup` stage
+finished polling a different table — a real "already there", not a bug).
+`poll.ordersTableRefund` moved from a 90s guess to a measured **60s**
+(~19x the observed max, n=4 kept thin on purpose rather than shrunk
+further).
+
+**PS full-set run surfaced one unrelated, pre-existing failure, not a
+TAA-59 regression:** `reject_undeliverable` timed out on `cleanup` when run
+in the same batch as `reject_reallocate` (shared pool slot 13) — the exact
+cross-case race TAA-31's slice F/G section already documents. Confirmed via
+an isolated re-run immediately after: PASS, `cleanup` settled in 11.2s.
+`reject_undeliverable` never runs `orders_table_refund` at all (confirmed
+from the JSON, both stores), so this ticket's own code was not involved.
+
+`npm run build` + `npm test`: **467/467 green** (456 baseline + 11 new).
+`--list-cases`/`--help` unchanged — still 12 cases. Acceptance criteria
+proposed as met; transition left to JJ.
+
 ## TAA-53 sign-off (2026-08-30) — admin-mutation probe, six contracts settled
 
 Full detail in `ts/signoffs/TAA-53-probe.md` — read that first. Summary

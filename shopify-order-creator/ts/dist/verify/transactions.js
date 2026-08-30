@@ -8,6 +8,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.assertTransactionPresent = assertTransactionPresent;
 exports.assertTransactionAbsent = assertTransactionAbsent;
+exports.refundedSkuStatusMatcher = refundedSkuStatusMatcher;
 exports.assertTransactionOrder = assertTransactionOrder;
 const dynamoReader_1 = require("../readers/dynamoReader");
 const index_1 = require("./index");
@@ -29,6 +30,28 @@ function assertTransactionAbsent(transactions, event, orderName, matcher) {
     if (matches.length > 0) {
         throw new index_1.VerificationError("orders_table.transaction_absent", `no ${event} transaction${matcher ? " matching predicate" : ""}`, `${matches.length} found`, `order ${orderName}`);
     }
+}
+/**
+ * Matcher for assertTransactionPresent/Absent: a REFUND_ITEM row whose
+ * itemChanges.refunded array carries an entry for the given sku with the
+ * given status (TAA-59). Confirmed shape live on both
+ * US-undeliverable-9865.json (fully undeliverable) and -9866.json (partial):
+ * refunded[] holds {sku, status, ...} per refunded unit. Guarded the same
+ * way orderRecordFromRows guards row.paymentMethod — refunded may be absent
+ * or not an array on an unrelated transaction (e.g. REFUND_SHIPPING has no
+ * itemChanges at all).
+ */
+function refundedSkuStatusMatcher(sku, expectedStatus) {
+    return (transaction) => {
+        const refunded = transaction.raw.itemChanges?.refunded;
+        if (!Array.isArray(refunded)) {
+            return false;
+        }
+        return refunded.some((entry) => {
+            const e = entry;
+            return e.sku === sku && e.status === expectedStatus;
+        });
+    };
 }
 /**
  * Confirms expectedEvents appears, in order, as a (not necessarily

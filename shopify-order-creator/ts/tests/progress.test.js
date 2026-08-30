@@ -20,11 +20,18 @@ test('stageSequenceFor: no-refund cases get a 7-stage sequence ending in no_refu
   ]);
 });
 
-test('stageSequenceFor: refund cases get an 8-stage sequence with refund+cleanup', () => {
+test('stageSequenceFor: refund cases get a 9-stage sequence with refund+cleanup+orders_table_refund (TAA-59)', () => {
   assert.deepEqual(stageSequenceFor(true), [
     'seed_inventory', 'create_order', 'shopify_readback', 'orders_table',
-    'allocation', 'refund', 'cleanup', 'inventory',
+    'allocation', 'refund', 'cleanup', 'orders_table_refund', 'inventory',
   ]);
+});
+
+test('stageSequenceFor: orders_table_refund is dropped when rejectMode is set, even with hasRefund (TAA-59, reject_undeliverable)', () => {
+  const withoutReject = stageSequenceFor(true);
+  const withReject = stageSequenceFor(true, false, 'undeliverable');
+  assert.ok(withoutReject.includes('orders_table_refund'));
+  assert.ok(!withReject.includes('orders_table_refund'));
 });
 
 test('stageSequenceFor: a fulfilment case (TAA-39) gets fulfil/fulfilment_verify/allocation_reflection appended after inventory', () => {
@@ -44,7 +51,7 @@ test('buildRunPlan repeats the full case list once per repeat, tagging refund vs
   assert.equal(plan.length, 4); // 2 cases x 2 repeats
   assert.equal(plan[0].repeatIndex, 0);
   assert.equal(plan[0].stages.length, 7); // single: no-refund
-  assert.equal(plan[1].stages.length, 8); // undeliverable: refund
+  assert.equal(plan[1].stages.length, 9); // undeliverable: refund + orders_table_refund (TAA-59)
   assert.equal(plan[2].repeatIndex, 1);
   assert.equal(plan[3].caseName, 'undeliverable');
 });

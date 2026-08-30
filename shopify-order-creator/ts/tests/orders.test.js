@@ -9,6 +9,7 @@ const {
   assertPaymentsSumToGrandTotal,
   assertBothAddressesPresent,
   assertItemDelivery,
+  assertOrderItemStatus,
 } = require('../dist/verify/orders.js');
 const { orderRecordFromRows, addressRowsFromRows, orderItemRowsFromRows } = require('../dist/readers/dynamoReader.js');
 
@@ -149,5 +150,26 @@ test('fulfilmentSkuQuantities ignores a line item with no sku (e.g. a deleted va
       () => assertItemDelivery(item, 'CLICKCOLLECT', '999', '#9997'),
       /orders_table\.item_click_collect_store/,
     );
+  });
+
+  // TAA-59: assertOrderItemStatus, using the two committed undeliverable fixtures.
+  test('assertOrderItemStatus passes for the refunded item on a fully-undeliverable order (order #9865)', () => {
+    const items = orderItemRowsFromRows(loadFixture('US-undeliverable-9865.json'));
+    const item = items.find((i) => i.sku === '33788579');
+    assert.doesNotThrow(() => assertOrderItemStatus(item, 'REFUNDED', '#9865'));
+  });
+
+  test('assertOrderItemStatus throws orders_table.item_status on a mismatch', () => {
+    const items = orderItemRowsFromRows(loadFixture('US-undeliverable-9865.json'));
+    const item = items.find((i) => i.sku === '33788579');
+    assert.throws(() => assertOrderItemStatus(item, 'OPEN', '#9865'), /orders_table\.item_status/);
+  });
+
+  test('assertOrderItemStatus distinguishes the still-open item from the refunded one on a partial-undeliverable order (order #9866)', () => {
+    const items = orderItemRowsFromRows(loadFixture('US-undeliverable-9866.json'));
+    const refunded = items.find((i) => i.sku === '33946269');
+    const stillOpen = items.find((i) => i.sku === '34023587');
+    assert.doesNotThrow(() => assertOrderItemStatus(refunded, 'REFUNDED', '#9866'));
+    assert.doesNotThrow(() => assertOrderItemStatus(stillOpen, 'OPEN', '#9866'));
   });
 }

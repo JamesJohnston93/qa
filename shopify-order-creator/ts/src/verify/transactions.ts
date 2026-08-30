@@ -55,6 +55,29 @@ export function assertTransactionAbsent(
 }
 
 /**
+ * Matcher for assertTransactionPresent/Absent: a REFUND_ITEM row whose
+ * itemChanges.refunded array carries an entry for the given sku with the
+ * given status (TAA-59). Confirmed shape live on both
+ * US-undeliverable-9865.json (fully undeliverable) and -9866.json (partial):
+ * refunded[] holds {sku, status, ...} per refunded unit. Guarded the same
+ * way orderRecordFromRows guards row.paymentMethod — refunded may be absent
+ * or not an array on an unrelated transaction (e.g. REFUND_SHIPPING has no
+ * itemChanges at all).
+ */
+export function refundedSkuStatusMatcher(sku: string, expectedStatus: string): TransactionMatcher {
+  return (transaction) => {
+    const refunded = (transaction.raw.itemChanges as Record<string, unknown> | undefined)?.refunded;
+    if (!Array.isArray(refunded)) {
+      return false;
+    }
+    return refunded.some((entry) => {
+      const e = entry as Record<string, unknown>;
+      return e.sku === sku && e.status === expectedStatus;
+    });
+  };
+}
+
+/**
  * Confirms expectedEvents appears, in order, as a (not necessarily
  * contiguous) subsequence of transactions' events. Rows are already
  * chronological (transactionRowsFromRows does not re-sort a Query's
