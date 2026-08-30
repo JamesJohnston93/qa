@@ -88,23 +88,44 @@ export interface ShipmentSummary {
 }
 
 /**
- * A `TRANSACTION#` event-log row (TAA-31 slice G) — `staging-shipments`'
- * append-only history of what happened to an order's shipments/items.
- * `shipmentItemInfo` is the per-item detail array most events carry (e.g.
- * `SHIPMENT_ITEM_REJECTED` rows carry exactly one entry, keyed by `id`, the
- * `ITEM#<uuid>` shipmentItemId); events with no such array (e.g. bare
- * `REALLOCATION` rows) get `[]`, not `undefined`.
+ * A `TRANSACTION#` event-log row — the shared envelope BOTH `staging-
+ * shipments` (TAA-31 slice G) and `staging-orders-v2` (TAA-48) use for their
+ * append-only event history. Confirmed identical on both tables by live
+ * capture (`ts/signoffs/TAA-48-slice-a.md`): every row on either table
+ * carries `pk`/`sk`/`event`/`category`/`origin`/`idempotencyId` alongside
+ * whatever event-specific payload it carries (`shipmentItemInfo`,
+ * `itemChanges`, `paymentChanges`, `shipmentInfo`, ...) — `raw` is the
+ * escape hatch for those. `shipmentItemInfo` is the per-item detail array
+ * most `staging-shipments` events carry (e.g. `SHIPMENT_ITEM_REJECTED` rows
+ * carry exactly one entry, keyed by `id`, the `ITEM#<uuid>` shipmentItemId);
+ * events with no such array (e.g. bare `REALLOCATION` rows, and every
+ * `staging-orders-v2` event) get `[]`, not `undefined`.
+ *
+ * `origin` means something DIFFERENT depending on which table the row came
+ * from — on `staging-orders-v2` it's always the Shopify origin string
+ * (`"US#SHOPIFY_ECOM#..."`); on `staging-shipments` it names the internal
+ * system that emitted the event (`SHIPPING_SERVICE`, `DC_PACKING`,
+ * `ORDERS_SERVICE`). Same field, two different meanings — read `raw` if the
+ * distinction matters to a caller.
  */
 export interface TransactionRow {
-  sortKey: string; // the TRANSACTION#<timestamp> sort key, verbatim
-  event: string; // e.g. "SHIPMENT_REJECTED", "SHIPMENT_ITEM_REJECTED"
+  pk: string; // the order's shared internal UUID, verbatim
+  sk: string; // the TRANSACTION#<timestamp> sort key, verbatim
+  event: string; // e.g. "CREATE_ORDER", "REFUND_ITEM", "SHIPMENT_REJECTED"
+  category: string; // e.g. "CHARGE", "REFUND", "CREATION", "UPDATE", "REMOVAL", "ALLOCATION"
+  origin: string; // see doc comment above — meaning depends on the source table
+  idempotencyId: string;
   shipmentItemInfo: Record<string, unknown>[];
   raw: Record<string, unknown>;
 }
 
 /**
- * `TRANSACTION#` rows -> TransactionRow[]. Pure — offline-testable, same
- * split as shipmentSummariesFromRows/ShipmentItem above.
+ * `TRANSACTION#` rows -> TransactionRow[], in the order given (a Query
+ * against either table returns rows in ascending sort-key order, i.e.
+ * already chronological — this does not re-sort). Pure — offline-testable,
+ * same split as shipmentSummariesFromRows/ShipmentItem above, and
+ * table-agnostic (TAA-48): reused for staging-orders-v2 rows below with no
+ * change, since both tables share the same envelope (see TransactionRow).
  */
 export function transactionRowsFromRows(rows: Record<string, unknown>[]): TransactionRow[] {
   const transactions: TransactionRow[] = [];
@@ -114,13 +135,22 @@ export function transactionRowsFromRows(rows: Record<string, unknown>[]): Transa
       continue;
     }
     transactions.push({
-      sortKey: sk,
+      pk: String(row.PK ?? ""),
+      sk,
       event: String(row.event ?? ""),
+      category: String(row.category ?? ""),
+      origin: String(row.origin ?? ""),
+      idempotencyId: String(row.idempotencyId ?? ""),
       shipmentItemInfo: Array.isArray(row.shipmentItemInfo) ? (row.shipmentItemInfo as Record<string, unknown>[]) : [],
       raw: row,
     });
   }
   return transactions;
+}
+
+/** Filter form for a chronological TransactionRow[] — e.g. isolate just the CREATE_ORDER row(s). Pure. */
+export function transactionRowsByEvent(transactions: TransactionRow[], event: string): TransactionRow[] {
+  return transactions.filter((t) => t.event === event);
 }
 
 export interface AllocationSummary {
@@ -244,6 +274,22 @@ export class DynamoReader {
   async getOrderPk(store: Store, orderIdTail: string): Promise<string | null> {
     const rows = await this.getOrderRows(store, orderIdTail);
     return orderPkFromRows(rows);
+  }
+
+  /**
+   * `TRANSACTION#` rows for an order from staging-orders-v2 (TAA-48) —
+   * chronological (see transactionRowsFromRows). Unlike getTransactionsByPk
+   * (staging-shipments, needs its own query once the PK is known), this
+   * needs no separate query at all: getOrderRows already fetches every row
+   * for the order via origin_index, TRANSACTION# rows included — same
+   * composition pattern as getOrderSkuQuantities/getOrderPk above. A caller
+   * with an already-resolved PK but no store/orderIdTail has no way to have
+   * gotten that PK without already holding this same row set, so there is
+   * no "ByPk" sibling here the way there is for staging-shipments.
+   */
+  async getOrderTransactions(store: Store, orderIdTail: string): Promise<TransactionRow[]> {
+    const rows = await this.getOrderRows(store, orderIdTail);
+    return transactionRowsFromRows(rows);
   }
 
   /**
