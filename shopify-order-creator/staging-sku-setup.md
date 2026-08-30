@@ -12,6 +12,23 @@ So: create **new, clearly-labelled QA test products** (e.g. title `QA TEST — d
 
 *(Status update, 2026-08-06 — read this alongside the above, don't assume it was followed: the pool actually in use is **ordinary staging-catalogue products** with real product titles, not dedicated `QA TEST — do not sell` items. JJ selected and pasted that list himself and it's an accepted decision, not an oversight. The `zeroEverywhere` warning above stands in full — it is still destructive, still hits ~194 rows per SKU, and still has no prior-value capture; the risk is simply accepted for these staging products. Anything **new** added to the pool should follow the recommendation above.)*
 
+*(Status update, 2026-08-30, TAA-46: the pool grew from 14 to **80 ordinary
+staging-catalogue products per store** (slots 14-79 added in slice C), and
+the same call from 2026-08-06 was made again deliberately, not by default —
+the 66 new entries per store are the same kind of real-titled staging
+product as the original 14, not dedicated `QA TEST` items. This is JJ's
+accepted call, same as above. One thing learned while growing the pool this
+time that changes how "requirements per test SKU" below should be read:
+TAA-46 slice B live-confirmed that Shopify's Admin API `draftOrderCreate`/
+`draftOrderComplete` — the path this harness's `order` command and every
+case use — is **not gated by a product's `status`, its channel publication,
+or its catalog/market membership at all** (`ts/signoffs/TAA-46-slice-b.md`).
+A product can be `DRAFT` and published to nothing and still take a real
+order. The only real requirement for a SKU to belong in this pool is stock
+somewhere real (`ts/scripts/select-pool-candidates.js` checks exactly this,
+nothing else, when picking new entries) — publication/catalog/status are
+not blockers and don't need checking before adding a SKU.)*
+
 ## How many
 
 Full-parallel one wave of the 6 baseline cases needs disjoint SKUs totalling **10**:
@@ -25,7 +42,7 @@ Full-parallel one wave of the 6 baseline cases needs disjoint SKUs totalling **1
 | undeliverable | 1 |
 | partial_undeliverable | 2 |
 
-Target **≥12 per store** — the 10 above plus ~2 headroom for the fulfilment cases (TAA-39) and rejection cases (TAA-31). ~~You currently have 5 US / 4 PS, so add roughly **7 US and 8 PS**.~~ *(Status update, 2026-08-06: done — `variants.ts` now holds **14 SKUs per store** (US grew 5→14 in TAA-14 Phase B, PS 4→14 in TAA-22 step 2), wired to the 10 disjoint slots with 4 spare. Behind that, the resolved lists `sku-lists/{us,ps}-skus.json` hold **191 US / 180 PS** SKUs — plenty of headroom to draw from for the fulfilment and rejection cases, so growing the pool now usually means promoting SKUs from those lists into `variants.ts`, not creating products.)* Do both stores (US = Universal Store staging, PS = Perfect Stranger staging).
+Target **≥12 per store** — the 10 above plus ~2 headroom for the fulfilment cases (TAA-39) and rejection cases (TAA-31). ~~You currently have 5 US / 4 PS, so add roughly **7 US and 8 PS**.~~ *(Status update, 2026-08-06: done — `variants.ts` now holds **14 SKUs per store** (US grew 5→14 in TAA-14 Phase B, PS 4→14 in TAA-22 step 2), wired to the 10 disjoint slots with 4 spare. Behind that, the resolved lists `sku-lists/{us,ps}-skus.json` hold **191 US / 180 PS** SKUs — plenty of headroom to draw from for the fulfilment and rejection cases, so growing the pool now usually means promoting SKUs from those lists into `variants.ts`, not creating products.)* *(Status update, 2026-08-30, TAA-46: grown again, 14 → **80 SKUs per store** — see CLAUDE.md's TAA-46 entry for the full 0-79 slot map. Same source lists, same "promote from the resolved JSON, don't create products" method; the ≥12 target here is long since superseded, kept as the record of the original ask.)* Do both stores (US = Universal Store staging, PS = Perfect Stranger staging).
 
 ## Requirements per test SKU
 

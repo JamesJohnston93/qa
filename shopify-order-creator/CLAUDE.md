@@ -3,9 +3,96 @@
 TypeScript CLI + regression harness (`ts/`) for placing test orders on Universal Store / Perfect Stranger **staging** and verifying omni-channel alignment across Shopify, AWS (DynamoDB), and NewStore. Two entry points from the same build: `node dist/index.js order ...` places one ad-hoc test order on demand (TAA-15); `node dist/index.js` with no subcommand runs the automated regression suite (TAA-13/14/17).
 
 **Owner:** JJ (james.johnston@universalstore.com.au). Tool originally by Jared Davis (as a Python CLI — see "TS rewrite complete" below).
-**Tracking:** Jira project TAA (current: **TAA-21 fulfilment workstream — all six slices (TAA-34..39) done**, live-confirmed on both stores (2026-08-23); **TAA-31 (rejection & reallocation) — done**, both reject cases (`reject_reallocate`/`reject_undeliverable`) wired into the regression suite and live-confirmed on both stores (2026-08-28) — see "TAA-31" section below; **TAA-42** filed for a real backend defect found by the `--repeat 3` check (Shopify fulfilment sync sometimes never fires, ~27% observed) — deliberately deferred, full order regression coverage is the priority before chasing it; TAA-40 owns the outstanding PS `--repeat 3` live run for the *baseline* set; TAA-32/33 queued behind TAA-31). Docs: Confluence QD space → "QA Automation Tool" page tree — see `regression-package-design.md` and `scope-of-work-reworked.md` in this folder, and `qa-order-cli-tool-documentation.md` for the `order` command's user-facing docs.
+**Tracking:** Jira project TAA (current: **TAA-21 fulfilment workstream — all six slices (TAA-34..39) done**, live-confirmed on both stores (2026-08-23); **TAA-31 (rejection & reallocation) — done**, both reject cases (`reject_reallocate`/`reject_undeliverable`) wired into the regression suite and live-confirmed on both stores (2026-08-28) — see "TAA-31" section below; **TAA-46 — all four slices done (2026-08-30)**, both pools grown 14→80 with the availability rule settled, see the sign-off immediately below (ticket transition proposed, left to JJ); **TAA-42** filed for a real backend defect found by the `--repeat 3` check (Shopify fulfilment sync sometimes never fires, ~27% observed) — deliberately deferred, full order regression coverage is the priority before chasing it; TAA-40 owns the outstanding PS `--repeat 3` live run for the *baseline* set; TAA-32/33 queued behind TAA-31). Docs: Confluence QD space → "QA Automation Tool" page tree — see `regression-package-design.md` and `scope-of-work-reworked.md` in this folder, and `qa-order-cli-tool-documentation.md` for the `order` command's user-facing docs.
 
-## TAA-46 IN FLIGHT (2026-08-28) — SKU pool to 80 slots + availability rule
+## TAA-46 sign-off (2026-08-30) — pool at 80, availability rule settled, all four slices done
+
+Parent workstream TAA-43; blocks TAA-49 (orders-service cases) and TAA-61
+(shape cases). Full slice-by-slice detail lives in `ts/signoffs/TAA-46-slice-a.md`
+through `-slice-d.md` (this section is the summary a future session should
+read first) and the plan that scoped it, `ts/plans/TAA-46-plan.md`. Ticket
+acceptance criteria are proposed as met below — **not transitioned**, left
+to JJ's explicit call per the plan.
+
+**The availability rule, settled empirically (slice B), in the form TAA-47
+needs:** Shopify's Admin API `draftOrderCreate`/`draftOrderComplete` — the
+path this harness's `order` command and every regression case use — is
+**not gated by a product's `status`, its channel publication
+(`resourcePublicationsV2`/`publishedOnPublication`), or its catalog/market
+membership at all.** A product can be `DRAFT` and published to zero
+publications and still take a real order with real price and shipping-rate
+resolution — live-proven on US, order **#9984**, SKU `33860138` (`DRAFT`,
+unpublished everywhere, real stock 5, so the result isn't confounded by
+being out of stock). Those fields gate storefront/POS visibility only, not
+this project's order-injection path. **The only real requirement for a SKU
+to belong in the pool is real stock somewhere** (sum of per-store
+`staging-inventory-v2` quantities, aggregate/mirror locations —
+`config.ts`'s `AGGREGATE_LOCATIONS` — excluded, same convention
+`verify/inventory.ts` already uses for decrement assertions). `TAA-47`'s
+`prepare-skus` script should filter candidate lists on stock alone; no
+publication/catalog/status check is needed and would only add noise.
+
+**Scope gap found (slice A), unresolved, same on both apps — hand to JJ if
+`MarketCatalog.markets` is ever needed:** `Access denied for markets field`
+(`ACCESS_DENIED`) on both US (static token) and PS (OAuth client-credentials
+grant) when reading `MarketCatalog.markets(first:)` via the top-level
+`catalogs` query. Every other field this project reads — `product.status`,
+`resourcePublicationsV2`, `unpublishedPublications`,
+`publishedOnPublication`, the base `catalogs` query itself, and the Dynamo
+stock read — worked on both stores with no scope issues. Likely
+`read_markets`, not confirmed (no mutation/scope-list check attempted,
+read-only slice). Not chased further — nothing in this ticket or the
+harness needs `MarketCatalog.markets`.
+
+**NewStore case pinning (slice C) — why it was needed:** `ns_sfs`/`ns_otc`
+(`ts/src/cases/newstoreCases.ts`) used to resolve to the pool's **last two
+entries by position** (`pool[pool.length - 2]`/`pool[pool.length - 1]`).
+Growing the pool from 14 to 80 would have silently moved both cases from
+slots 12/13 to slots 78/79 — brand-new SKUs whose availability nothing had
+proven yet, on this exact expansion. Fixed to fixed constants
+`NS_SFS_SLOT = 14` / `NS_OTC_SLOT = 15` (freed up by TAA-31 closing on slot
+13 without needing them), so no future pool growth can move them again. The
+substantive reasoning that made the old code safe despite reusing SKUs
+positionally is unrelated to *which* slots are involved and still holds: NS
+injection never touches Shopify or `staging-inventory-v2`, so it has no
+shared mutable state to race with a concurrently-run baseline case.
+
+**Live spot-check (slice D) — both stores, new-slot SKUs, both PASS:**
+`node dist/index.js order --store US --items 33809786x1` (slot 20) → order
+**#9985**. `node dist/index.js order --store PS --items 34010884x1` (slot
+20) → order **#3321**. Both placed through the ordinary `order` subcommand
+with no special-casing, proving purchasability end to end (not just GID
+resolution) for a representative new-slot SKU on each store — the
+acceptance criterion the whole ticket rests on.
+
+**Slot map, 0 to 79 (final, supersedes the plan file's copy):**
+
+| Slots | Owner |
+| --- | --- |
+| 0 to 13 | existing default case set, unchanged |
+| 14 to 15 | `ns_sfs` / `ns_otc`, pinned (freed by TAA-31 closing on slot 13) |
+| 16 | TAA-32 click & collect |
+| 17 | TAA-33 finalisation |
+| 18 to 23 | hold lifecycle TC7-12 (TAA-54) |
+| 24 to 30 | edit & refund TC13-19 (TAA-56) |
+| 31 to 37 | return & finalisation TC20-22, TC27-29 (TAA-58) |
+| 38 to 49 | order shapes (TAA-60 discovery, TAA-61 cases); resize within this block rather than extending the pool |
+| 50 to 52 | discount & BOGO (TAA-62) |
+| 53 to 79 | spare (27 slots), including the complex-order shapes JJ is adding to scope later |
+
+**Verification:** `npm run build` + `npm test` green at every slice (final:
+**327/327**, up from 320/320 baseline — 7 new tests, `variants.test.js` +
+one replacement in `newstoreCases.test.js`). `--list-cases` output
+unchanged throughout — this ticket changed no case definitions or flags,
+only which SKUs `ns_sfs`/`ns_otc` bind to and the size of the pool two
+existing helper functions (`sku(i)`, `skuPoolFor`) draw from.
+
+**Not done, deliberately, per the plan:** no `prepare-skus` automation for
+arbitrary SKU lists (that's TAA-47), no new cases claiming slots 16-79 (that
+belongs to the tickets named in the slot map above), no regeneration of the
+ground-truth doc.
+
+## TAA-46 IN FLIGHT (2026-08-28) — SKU pool to 80 slots + availability rule *(historical — superseded by the sign-off immediately above; kept as the original plan record)*
 
 **Start here.** Plan: `ts/plans/TAA-46-plan.md`. Ticket:
 https://universalstore.atlassian.net/browse/TAA-46 (parent workstream TAA-43; blocks
