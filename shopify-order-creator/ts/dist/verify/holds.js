@@ -15,12 +15,30 @@
  * backend's side. assertOnHold therefore compares unique reason sets, not
  * raw array equality — a caller asserting "on hold for OUTSTANDING_PAYMENT"
  * must not have to know or predict how many times the trigger fired.
+ *
+ * assertHoldTransactionCount/assertUnholdTransactionCount (TAA-54) close the
+ * gap the dup-row finding above exposed: assertOnHold only ever compares
+ * REASON SETS, so it cannot by itself distinguish "held for
+ * OUTSTANDING_PAYMENT via one HOLD_ORDER row" from "...via three" — exactly
+ * the distinction TAA-54's os_hold_multi (TC9) needs ("exactly one HOLD_ORDER
+ * row per distinct reason") and os_hold_partial_release (TC12) needs (an
+ * UNHOLD_ORDER row naming the released reason, and the deliberate ABSENCE of
+ * one naming the reason still held). `onHoldChangesFrom` below is a
+ * deliberate duplicate of flows/holdFlow.ts's private helper of the same
+ * name/shape (both read `TransactionRow.raw.onHoldChanges` since the field
+ * isn't on TransactionRow's typed surface) — see that file's own doc comment
+ * for why flows and verify/** each keep their own copy rather than sharing
+ * one: "flows assert nothing, verify/** asserts... duplication is deliberate
+ * and correct... sharing the check would couple two modules that need to
+ * stay independently owned."
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.OUTSTANDING_PAYMENT = exports.POTENTIAL_FRAUD = void 0;
 exports.assertOnHold = assertOnHold;
 exports.assertNotOnHold = assertNotOnHold;
 exports.assertHoldReasonAbsent = assertHoldReasonAbsent;
+exports.assertHoldTransactionCount = assertHoldTransactionCount;
+exports.assertUnholdTransactionCount = assertUnholdTransactionCount;
 const index_1 = require("./index");
 exports.POTENTIAL_FRAUD = "POTENTIAL_FRAUD";
 exports.OUTSTANDING_PAYMENT = "OUTSTANDING_PAYMENT";
@@ -67,5 +85,40 @@ function assertHoldReasonAbsent(record, reason, orderName) {
     requireRecord(record, orderName);
     if (record.onHold.includes(reason)) {
         throw new index_1.VerificationError("orders_table.hold_reason_absent", `${reason} absent`, record.onHold, `order ${orderName}`);
+    }
+}
+function onHoldChangesFrom(transaction, key) {
+    const onHoldChanges = transaction.raw.onHoldChanges;
+    const values = onHoldChanges?.[key];
+    if (!Array.isArray(values)) {
+        return [];
+    }
+    return values.map(String);
+}
+/**
+ * Exactly `expectedCount` HOLD_ORDER transaction rows name `reason` in their
+ * `onHoldChanges.added`. `expectedCount` covers both presence (1, the normal
+ * single-trigger case) and — same shape as verify/rejects.ts's
+ * assertRejectTransactions — a caller could pass a higher count to
+ * deliberately confirm a known-duplicated trigger, though no case in this
+ * project asserts that today.
+ */
+function assertHoldTransactionCount(transactions, reason, expectedCount, orderName) {
+    const matches = transactions.filter((t) => t.event === "HOLD_ORDER" && onHoldChangesFrom(t, "added").includes(reason));
+    if (matches.length !== expectedCount) {
+        throw new index_1.VerificationError("orders_table.hold_transaction_count", expectedCount, matches.length, `order ${orderName}: expected exactly ${expectedCount} HOLD_ORDER transaction(s) naming ${reason} (onHoldChanges.added), got ${matches.length}`);
+    }
+}
+/**
+ * Exactly `expectedCount` UNHOLD_ORDER transaction rows name `reason` in
+ * their `onHoldChanges.removed`. `expectedCount` of `0` is a deliberate,
+ * first-class use — TAA-54's os_hold_partial_release (TC12) asserts the
+ * ABSENCE of a release row for the reason still held, alongside a `1` for
+ * the reason actually released on the same order.
+ */
+function assertUnholdTransactionCount(transactions, reason, expectedCount, orderName) {
+    const matches = transactions.filter((t) => t.event === "UNHOLD_ORDER" && onHoldChangesFrom(t, "removed").includes(reason));
+    if (matches.length !== expectedCount) {
+        throw new index_1.VerificationError("orders_table.unhold_transaction_count", expectedCount, matches.length, `order ${orderName}: expected exactly ${expectedCount} UNHOLD_ORDER transaction(s) naming ${reason} (onHoldChanges.removed), got ${matches.length}`);
     }
 }

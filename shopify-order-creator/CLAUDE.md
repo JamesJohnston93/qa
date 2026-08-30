@@ -13,6 +13,54 @@ Two things need JJ rather than a session: **TAA-60's shape list needs sign-off**
 
 Field-name drift worth knowing before writing assertions: the ORDER row carries `paymentMethod` singular (an array of method/amount); the click-and-collect store is `clickCollectStore` on the ITEM# row but `ccStore` on the CREATE_ORDER transaction envelope; and `finalPrice` does not exist anywhere, `grandTotal` is already net of discount. Two probes still owed before their tickets design cases: a CC-tagged `fulfillmentOrderMove` (TAA-32) and a return that closes with money movement (TAA-58). SKU pool after wave 2: US slots 53-56, 58, 59, 61, 62, 64-73 burned; 38-45 reserved by the shape catalogue; free are 46-49, 63 and 74-79 (57 and 60 burned by TAA-68 — US #10006 on slot 57, PS #3330 on slot 60).
 
+## TAA-54 sign-off (2026-08-31) — hold lifecycle cases (TC7-12), orders subcommand
+
+Full detail in `ts/signoffs/TAA-54.md` — read that first. Summary only
+below. Depended on TAA-52/TAA-57/TAA-47, all merged and closed before this
+started.
+
+**New opt-in `orders` subcommand** (`node dist/index.js orders --store
+<US|PS> [--cases <name,...>]`) — six hold-lifecycle cases (TC7-12) at fixed
+pool slots 18-23 (add-item SKU shared at slot 74 across the four
+edit-driven variants), built from `cases/ordersCases.ts` +
+`ordersRunner.ts` + `cli-orders.ts`. Runs sequentially, no progress tracker
+(same reasoning `runNewStoreCase` already uses for NS cases). Deliberately
+does not touch `runner.ts`/`progress.ts`/`cli.ts` — a third case kind was
+considered and rejected per the ticket, precisely so this could be built
+without stepping on `runner.ts`, which TAA-59 owns this wave. Not part of
+the default 12-case regression set — promoting it there is a later,
+separate decision.
+
+**`verify/holds.ts` gained two exact-count assertions**
+(`assertHoldTransactionCount`/`assertUnholdTransactionCount`), closing a gap
+TAA-52's own dup-row finding exposed: `assertOnHold` only ever compares
+reason **sets**, so it can't tell "one HOLD_ORDER row naming a reason" from
+"three." TC9 (`os_hold_multi`) needs exactly one per reason; TC12
+(`os_hold_partial_release`) needs presence for the released reason and
+absence (count 0) for the reason still held.
+
+**Live-confirmed, both stores, 6/6 PASS each** (2026-08-31): US #10011,
+#10019, #10022, #10024, #10025, #10026; PS #3343, #3344, #3345, #3347,
+#3348, #3349. Default regression suite spot-checked unaffected
+(`--cases single`, PASS). Offline: 477/477 green (456 baseline + 21 new).
+
+**Finding, logged not chased (same posture as TAA-42):** fraud-hold apply
+settled 65-69s across every sample this session on both stores — TAA-57
+measured 12.7s/8.7s, roughly 5-8x faster. Still comfortably inside the 120s
+`ordersService` window; outstanding-payment timings were unaffected and
+matched TAA-57's numbers. Worth re-checking if a future run sees this
+regularly exceed ~90-100s.
+
+**Housekeeping note for future parallel sessions:** this ticket and TAA-59
+both ended up driving the same shared main `git` working directory this
+session — the two per-session worktrees the environment meant to provision
+were stale/broken (dead `.git` pointers). Resolved mid-session with no data
+lost on either side (full account in the sign-off); this ticket's own work
+from slice A onward was built in a proper isolated `git worktree`. If a
+stale-worktree situation recurs, check `git worktree list` and whether
+`.git/worktrees/<name>` actually exists before assuming a `git checkout` in
+the visible `GitHub/qa` directory is safe to do alone.
+
 ## TAA-59 sign-off (2026-08-30/31) — orders-service assertions on the undeliverable cases, TC25 closed as null result
 
 Full detail in `ts/signoffs/TAA-59.md` — read that first. Parent workstream
