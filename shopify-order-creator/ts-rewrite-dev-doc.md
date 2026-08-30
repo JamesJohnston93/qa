@@ -173,7 +173,7 @@ qa/
 ## Known constraints to carry over
 
 - Shopify merges duplicate line items; DynamoDB/NewStore are one-row-per-unit — compare SKU→quantity maps, never line counts.
-- ~~Variant pools are small (5 US / 4 PS SKUs) — full per-case SKU isolation impossible until pools grow; run cases sequentially to terminal state.~~ *(Resolved: 14 SKUs per store with 10 disjoint slots, and parallel is the default as of 2026-08-06.)*
+- ~~Variant pools are small (5 US / 4 PS SKUs) — full per-case SKU isolation impossible until pools grow; run cases sequentially to terminal state.~~ *(Resolved: 14 SKUs per store with 10 disjoint slots, and parallel is the default as of 2026-08-06.)* *(Status update, 2026-08-30, TAA-46: pools are now 80 slots per store; the canonical 0-79 slot map lives in CLAUDE.md's TAA-46 sign-off section.)*
 - Poll windows are guesses until tuned from recorded stage timings; timing drift is itself a signal.
 
 ## Build order (maps to the Jira checklist)
