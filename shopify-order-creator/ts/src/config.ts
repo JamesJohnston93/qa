@@ -140,11 +140,15 @@ export interface PollWindows {
    * REFUNDED, the REFUND_ITEM transaction carrying the sku's UNDELIVERABLE
    * status, and (for a fully-undeliverable order only) REFUND_SHIPPING plus
    * ORDER.status REFUNDED. Only wired for the plain `undeliverable`/
-   * `partial_undeliverable` cases (see stageSequenceFor's doc comment) —
-   * never measured live yet, so 90s is a conservative first estimate, same
-   * order of magnitude as `refund` (also 90s) since both settle off the same
-   * Shopify-refund-triggered webhook chain, just different tables. Replace
-   * with a measured number once slice B of ts/plans/TAA-59-plan.md runs live.
+   * `partial_undeliverable` cases (see stageSequenceFor's doc comment).
+   * Measured live (2026-08-30, both stores): 3.1s for `undeliverable`
+   * (US #10010/#10016, PS #3337), 0.0s for `partial_undeliverable` (US
+   * #10009/#10017, PS #3338) — this data typically has already landed by
+   * the time the preceding `cleanup` stage (up to 120s) finishes polling the
+   * same webhook chain on a different table, so 0.0s is a real "already
+   * there", not a bug. n=4 across 2 stores is thin, so kept well above the
+   * observed max rather than shrunk to it — same posture as
+   * `rejectTransactions`'s 30s despite resolving in 0.0s every run.
    */
   ordersTableRefund: number;
 }
@@ -162,7 +166,7 @@ export const DEFAULT_POLL_WINDOWS: PollWindows = {
   fulfilment: 150,
   rejectTransactions: 30,
   ordersService: 120,
-  ordersTableRefund: 90,
+  ordersTableRefund: 60,
 };
 
 export interface RegressionConfig {

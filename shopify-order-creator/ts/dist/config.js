@@ -54,7 +54,7 @@ exports.DEFAULT_POLL_WINDOWS = {
     fulfilment: 150,
     rejectTransactions: 30,
     ordersService: 120,
-    ordersTableRefund: 90,
+    ordersTableRefund: 60,
 };
 function defaultConfig() {
     return {
