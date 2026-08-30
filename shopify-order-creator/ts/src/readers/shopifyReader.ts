@@ -10,7 +10,15 @@
 
 import type { ShopifyClient } from "../clients/shopify";
 
+/**
+ * `id` added (TAA-55): the real `LineItem` GID a targeted `refundCreate`
+ * needs (`RefundLineItem.lineItemId`) — without it, this client's own
+ * primary refund contract has no way to be invoked against real order data.
+ * Purely additive; every existing consumer of `sku`/`quantity`/`unitPrice`
+ * is unaffected.
+ */
 export interface ShopifyLineItem {
+  id: string;
   sku: string;
   quantity: number;
   unitPrice: number;
@@ -23,7 +31,9 @@ export interface ShopifyRefund {
   items: Array<{ sku: string | null; quantity: number }>;
 }
 
+/** `id` added (TAA-55): the real `FulfillmentLineItem` GID `createReturn` needs (`ReturnLineItemInput.fulfillmentLineItemId`), same reasoning as `ShopifyLineItem.id` above. */
 export interface ShopifyFulfilmentLineItem {
+  id: string;
   sku: string | null;
   quantity: number;
 }
@@ -45,6 +55,25 @@ export interface ShopifyFulfilment {
   items: ShopifyFulfilmentLineItem[];
 }
 
+/**
+ * One Shopify FulfillmentOrder (TAA-55). Unlike `Order.fulfillments`,
+ * `Order.fulfillmentOrders` IS a real connection (`FulfillmentOrderConnection`)
+ * on 2025-10 — confirmed live via schema introspection before writing this
+ * selection set, not assumed from the probe's dump-query pattern. `holds`
+ * comes from `fulfillmentHolds`, the field name Shopify actually uses.
+ */
+export interface ShopifyFulfillmentOrderHold {
+  id: string;
+  reason: string | null;
+  reasonNotes: string | null;
+}
+
+export interface ShopifyFulfillmentOrder {
+  id: string;
+  status: string | null;
+  holds: ShopifyFulfillmentOrderHold[];
+}
+
 export interface ShopifyOrderSnapshot {
   id: string;
   name: string;
@@ -52,6 +81,7 @@ export interface ShopifyOrderSnapshot {
   lineItems: ShopifyLineItem[];
   refunds: ShopifyRefund[];
   fulfilments: ShopifyFulfilment[];
+  fulfillmentOrders: ShopifyFulfillmentOrder[];
   raw: unknown;
 }
 
@@ -66,6 +96,7 @@ const ORDER_QUERY = `
         lineItems(first: 50) {
           edges {
             node {
+              id
               sku
               quantity
               originalUnitPriceSet { shopMoney { amount } }
@@ -95,8 +126,22 @@ const ORDER_QUERY = `
           fulfillmentLineItems(first: 50) {
             edges {
               node {
+                id
                 quantity
                 lineItem { sku }
+              }
+            }
+          }
+        }
+        fulfillmentOrders(first: 10) {
+          edges {
+            node {
+              id
+              status
+              fulfillmentHolds {
+                id
+                reason
+                reasonNotes
               }
             }
           }
@@ -113,7 +158,7 @@ interface OrderQueryResult {
     displayFinancialStatus: string | null;
     lineItems: {
       edges: Array<{
-        node: { sku: string; quantity: number; originalUnitPriceSet: { shopMoney: { amount: string } } };
+        node: { id: string; sku: string; quantity: number; originalUnitPriceSet: { shopMoney: { amount: string } } };
       }>;
     };
     refunds: Array<{
@@ -129,9 +174,18 @@ interface OrderQueryResult {
       status: string | null;
       location: { id: string; name: string } | null;
       fulfillmentLineItems: {
-        edges: Array<{ node: { quantity: number; lineItem: { sku: string } | null } }>;
+        edges: Array<{ node: { id: string; quantity: number; lineItem: { sku: string } | null } }>;
       };
     }>;
+    fulfillmentOrders: {
+      edges: Array<{
+        node: {
+          id: string;
+          status: string | null;
+          fulfillmentHolds: Array<{ id: string; reason: string | null; reasonNotes: string | null }>;
+        };
+      }>;
+    };
   } | null;
 }
 
@@ -146,6 +200,7 @@ export async function getOrder(client: ShopifyClient, orderGid: string): Promise
   }
 
   const lineItems: ShopifyLineItem[] = node.lineItems.edges.map((edge) => ({
+    id: edge.node.id,
     sku: edge.node.sku,
     quantity: Number(edge.node.quantity),
     unitPrice: Number(edge.node.originalUnitPriceSet.shopMoney.amount),
@@ -167,8 +222,19 @@ export async function getOrder(client: ShopifyClient, orderGid: string): Promise
     locationId: fulfillment.location?.id ?? null,
     locationName: fulfillment.location?.name ?? null,
     items: fulfillment.fulfillmentLineItems.edges.map((edge) => ({
+      id: edge.node.id,
       sku: edge.node.lineItem?.sku ?? null,
       quantity: Number(edge.node.quantity),
+    })),
+  }));
+
+  const fulfillmentOrders: ShopifyFulfillmentOrder[] = node.fulfillmentOrders.edges.map((edge) => ({
+    id: edge.node.id,
+    status: edge.node.status,
+    holds: edge.node.fulfillmentHolds.map((hold) => ({
+      id: hold.id,
+      reason: hold.reason,
+      reasonNotes: hold.reasonNotes,
     })),
   }));
 
@@ -179,6 +245,7 @@ export async function getOrder(client: ShopifyClient, orderGid: string): Promise
     lineItems,
     refunds,
     fulfilments,
+    fulfillmentOrders,
     raw: node,
   };
 }

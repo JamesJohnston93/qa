@@ -24,6 +24,7 @@ const ORDER_QUERY = `
         lineItems(first: 50) {
           edges {
             node {
+              id
               sku
               quantity
               originalUnitPriceSet { shopMoney { amount } }
@@ -53,8 +54,22 @@ const ORDER_QUERY = `
           fulfillmentLineItems(first: 50) {
             edges {
               node {
+                id
                 quantity
                 lineItem { sku }
+              }
+            }
+          }
+        }
+        fulfillmentOrders(first: 10) {
+          edges {
+            node {
+              id
+              status
+              fulfillmentHolds {
+                id
+                reason
+                reasonNotes
               }
             }
           }
@@ -73,6 +88,7 @@ async function getOrder(client, orderGid) {
         throw new Error(`order ${orderGid} not found in Shopify: ${JSON.stringify(result)}`);
     }
     const lineItems = node.lineItems.edges.map((edge) => ({
+        id: edge.node.id,
         sku: edge.node.sku,
         quantity: Number(edge.node.quantity),
         unitPrice: Number(edge.node.originalUnitPriceSet.shopMoney.amount),
@@ -92,8 +108,18 @@ async function getOrder(client, orderGid) {
         locationId: fulfillment.location?.id ?? null,
         locationName: fulfillment.location?.name ?? null,
         items: fulfillment.fulfillmentLineItems.edges.map((edge) => ({
+            id: edge.node.id,
             sku: edge.node.lineItem?.sku ?? null,
             quantity: Number(edge.node.quantity),
+        })),
+    }));
+    const fulfillmentOrders = node.fulfillmentOrders.edges.map((edge) => ({
+        id: edge.node.id,
+        status: edge.node.status,
+        holds: edge.node.fulfillmentHolds.map((hold) => ({
+            id: hold.id,
+            reason: hold.reason,
+            reasonNotes: hold.reasonNotes,
         })),
     }));
     return {
@@ -103,6 +129,7 @@ async function getOrder(client, orderGid) {
         lineItems,
         refunds,
         fulfilments,
+        fulfillmentOrders,
         raw: node,
     };
 }
