@@ -49,3 +49,14 @@ function describe(value) {
 __exportStar(require("./fulfilment"), exports);
 __exportStar(require("./allocation"), exports);
 __exportStar(require("./rejects"), exports);
+// TAA-52's three new modules (holds.ts, finalisation.ts, transactions.ts)
+// deliberately follow orders.ts/shipments.ts's convention — imported
+// directly by callers (`from "./verify/holds"`, etc.) — rather than being
+// re-exported here. In practice every existing consumer (runner.ts, every
+// *.test.js) already imports every verify module directly regardless of
+// what this file re-exports, so the re-exports above are unused by any
+// current caller; not re-exporting is the more honest reflection of that,
+// and keeps holds/finalisation/transactions consistent with the other
+// orders-v2/staging-shipments read-based modules (orders.ts, shipments.ts)
+// rather than the result-of-an-action modules above (fulfilment/allocation/
+// rejects).
