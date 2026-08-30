@@ -27,9 +27,14 @@
  *      holds the plain store number (e.g. "100" — not "BRANCH_100").
  *
  * staging-orders-v2 row shapes (by SK prefix):
- *   "ORDER"            - order summary (shopifyExternalOrderId, status, totals)
- *   "ADDRESS#BILLING" / "ADDRESS#SHIPPING"
- *   "ITEM#<uuid>"      - one row per unit (sku, status, shopifyLineItemId, totals)
+ *   "ORDER"            - order summary (shopifyExternalOrderId, status, totals,
+ *                        paymentMethod [singular, array], onHold [array of
+ *                        reason strings, absent unless held] - see OrderRecord,
+ *                        TAA-50)
+ *   "ADDRESS#BILLING" / "ADDRESS#SHIPPING" - see AddressRow, TAA-50
+ *   "ITEM#<uuid>"      - one row per unit (sku, status, shopifyLineItemId, totals,
+ *                        deliveryMethod, clickCollectStore [CLICKCOLLECT rows
+ *                        only], discountInfo - see OrderItemRow, TAA-50)
  *   "TRANSACTION#<ts>" - event log (CREATE_ORDER, etc.)
  *
  * staging-shipments row shapes (by SK prefix):
@@ -198,6 +203,186 @@ export function orderPkFromRows(rows: Record<string, unknown>[]): string | null 
   return String((orderRow ?? rows[0]).PK);
 }
 
+export interface PaymentMethodEntry {
+  method: string;
+  amount: number;
+}
+
+/**
+ * The ORDER row's hold/payment/totals surface (TAA-50) — one row per order.
+ * `paymentMethod` is SINGULAR and an array of `{method, amount}` (there is
+ * no `paymentMethods`), CONFIRMED across all 10 pre-existing fixtures plus
+ * two more captured this ticket. `onHold` is an array of reason strings,
+ * present only while the order is held — absent (not `[]`) on every
+ * not-held fixture, normalized to `[]` here. Both reason strings this
+ * ticket needed were confirmed live: `POTENTIAL_FRAUD`, from
+ * `fulfillmentOrderHold(reason: HIGH_RISK_OF_FRAUD)` — the GraphQL enum
+ * translates to this DynamoDB string, do not send `POTENTIAL_FRAUD` as
+ * GraphQL input (order #9994, `US-hold-fraud-9994.json`); and
+ * `OUTSTANDING_PAYMENT`, raised automatically by an order edit that adds an
+ * unpaid item to an already-paid order — one of three triggers TAA-53
+ * documented for the same mechanism, the other two being an unpaid order at
+ * creation and an untargeted refund (order #9998,
+ * `US-hold-outstanding-edit-9998.json`). `ccStore`/`finalPrice` are NOT on
+ * this row — see OrderItemRow below for both. `currency` is present on
+ * every fixture seen to date but kept nullable per the ticket's "if
+ * present" — conservative, not evidence of an observed gap.
+ */
+export interface OrderRecord {
+  status: string;
+  onHold: string[];
+  paymentMethod: PaymentMethodEntry[];
+  subtotal: number;
+  grandTotal: number;
+  currency: string | null;
+  customerId: string;
+  raw: Record<string, unknown>;
+}
+
+/**
+ * The ORDER row -> OrderRecord, or null if the order hasn't landed in
+ * staging-orders-v2 yet (no ORDER row present). Pure — offline-testable,
+ * same split as orderPkFromRows/orderSkuQuantitiesFromRows above.
+ */
+export function orderRecordFromRows(rows: Record<string, unknown>[]): OrderRecord | null {
+  const row = rows.find((r) => r.SK === "ORDER");
+  if (!row) {
+    return null;
+  }
+  const paymentMethod = Array.isArray(row.paymentMethod)
+    ? (row.paymentMethod as Record<string, unknown>[]).map((entry) => ({
+        method: String(entry.method ?? ""),
+        amount: Number(entry.amount ?? 0),
+      }))
+    : [];
+  return {
+    status: String(row.status ?? ""),
+    onHold: Array.isArray(row.onHold) ? (row.onHold as unknown[]).map(String) : [],
+    paymentMethod,
+    subtotal: Number(row.subtotal ?? 0),
+    grandTotal: Number(row.grandTotal ?? 0),
+    currency: row.currency ? String(row.currency) : null,
+    customerId: String(row.customerId ?? ""),
+    raw: row,
+  };
+}
+
+/**
+ * An ADDRESS#SHIPPING or ADDRESS#BILLING row (TAA-50) — fields CONFIRMED
+ * identical across every fixture under ts/fixtures/orders-v2/: street1,
+ * phone, customerId, firstName, lastName, city, state, postalCode, country,
+ * countryCode, origin, createdAt, updatedAt. `emailAddress` is
+ * SHIPPING-only — null on every BILLING row observed, never absent on
+ * SHIPPING.
+ */
+export interface AddressRow {
+  type: "SHIPPING" | "BILLING";
+  street1: string;
+  phone: string;
+  customerId: string;
+  firstName: string;
+  lastName: string;
+  city: string;
+  state: string;
+  postalCode: string;
+  country: string;
+  countryCode: string;
+  origin: string;
+  createdAt: number;
+  updatedAt: number;
+  emailAddress: string | null;
+  raw: Record<string, unknown>;
+}
+
+/** ADDRESS# rows -> AddressRow[], in whatever order the Query returned. Pure — offline-testable. */
+export function addressRowsFromRows(rows: Record<string, unknown>[]): AddressRow[] {
+  const addresses: AddressRow[] = [];
+  for (const row of rows) {
+    const sk = String(row.SK ?? "");
+    if (sk !== "ADDRESS#SHIPPING" && sk !== "ADDRESS#BILLING") {
+      continue;
+    }
+    addresses.push({
+      type: sk === "ADDRESS#SHIPPING" ? "SHIPPING" : "BILLING",
+      street1: String(row.street1 ?? ""),
+      phone: String(row.phone ?? ""),
+      customerId: String(row.customerId ?? ""),
+      firstName: String(row.firstName ?? ""),
+      lastName: String(row.lastName ?? ""),
+      city: String(row.city ?? ""),
+      state: String(row.state ?? ""),
+      postalCode: String(row.postalCode ?? ""),
+      country: String(row.country ?? ""),
+      countryCode: String(row.countryCode ?? ""),
+      origin: String(row.origin ?? ""),
+      createdAt: Number(row.createdAt ?? 0),
+      updatedAt: Number(row.updatedAt ?? 0),
+      emailAddress: row.emailAddress ? String(row.emailAddress) : null,
+      raw: row,
+    });
+  }
+  return addresses;
+}
+
+/**
+ * An ITEM# row on staging-orders-v2 (TAA-50) — per-unit detail this table
+ * already carried but no reader surfaced beyond a bare SKU count
+ * (orderSkuQuantitiesFromRows). `deliveryMethod` observed "STANDARD" and
+ * "CLICKCOLLECT"; `clickCollectStore` (plain store number string, e.g.
+ * "251") is present ONLY on a CLICKCOLLECT row — live-captured via
+ * draftOrderCreate's current (2025-10) `shippingLine.shippingRateHandle`
+ * path (order #9997, `US-clickcollect-9997.json`); `cli-order.ts`'s
+ * `--delivery pickup:` flag could not place the order itself, see the
+ * sign-off. The SAME value is named `ccStore` on the CREATE_ORDER
+ * TRANSACTION# row's `itemChanges.added[]` — envelope and row disagree on
+ * the field's name, same class of drift as paymentMethod/
+ * paymentChanges.payments.
+ *
+ * `finalPrice` does NOT exist on this row, or anywhere else in
+ * staging-orders-v2 — chased live via a real orderEdit with a line-item
+ * discount (order #9998, `US-hold-outstanding-edit-9998.json`): the
+ * discount shows up only as `discountInfo: [{amount, code, type}]`, and
+ * `grandTotal` already reflects the post-discount value (grandTotal 49 =
+ * subtotal 50 - discountInfo[0].amount 1) — confirming TAA-53's edit-chain
+ * finding that no separate discount/final-price field is ever emitted.
+ * Deliberately left out of this interface; do not add it without a real
+ * fixture (deferred to TAA-56).
+ */
+export interface OrderItemRow {
+  sku: string;
+  status: string;
+  deliveryMethod: string;
+  clickCollectStore: string | null;
+  subtotal: number;
+  grandTotal: number;
+  discountInfo: Record<string, unknown>[];
+  shopifyLineItemId: string;
+  raw: Record<string, unknown>;
+}
+
+/** ITEM# rows on staging-orders-v2 -> OrderItemRow[]. Pure — offline-testable. */
+export function orderItemRowsFromRows(rows: Record<string, unknown>[]): OrderItemRow[] {
+  const items: OrderItemRow[] = [];
+  for (const row of rows) {
+    const sk = String(row.SK ?? "");
+    if (!sk.startsWith("ITEM#")) {
+      continue;
+    }
+    items.push({
+      sku: String(row.sku ?? ""),
+      status: String(row.status ?? ""),
+      deliveryMethod: String(row.deliveryMethod ?? ""),
+      clickCollectStore: row.clickCollectStore ? String(row.clickCollectStore) : null,
+      subtotal: Number(row.subtotal ?? 0),
+      grandTotal: Number(row.grandTotal ?? 0),
+      discountInfo: Array.isArray(row.discountInfo) ? (row.discountInfo as Record<string, unknown>[]) : [],
+      shopifyLineItemId: String(row.shopifyLineItemId ?? ""),
+      raw: row,
+    });
+  }
+  return items;
+}
+
 /**
  * SHIPMENT# rows -> ShipmentSummary[]. Pure — offline-testable, and lets
  * getShipmentsByPk and getShipmentItemsByPk derive their views from the same
@@ -274,6 +459,35 @@ export class DynamoReader {
   async getOrderPk(store: Store, orderIdTail: string): Promise<string | null> {
     const rows = await this.getOrderRows(store, orderIdTail);
     return orderPkFromRows(rows);
+  }
+
+  /**
+   * The ORDER row's hold/payment/totals surface (TAA-50) — composed off
+   * getOrderRows, same pattern as getOrderPk/getOrderSkuQuantities: no new
+   * query. Null if the order hasn't landed yet.
+   */
+  async getOrderRecord(store: Store, orderIdTail: string): Promise<OrderRecord | null> {
+    const rows = await this.getOrderRows(store, orderIdTail);
+    return orderRecordFromRows(rows);
+  }
+
+  /**
+   * ADDRESS#SHIPPING and ADDRESS#BILLING rows for an order (TAA-50) —
+   * composed off getOrderRows, no new query.
+   */
+  async getAddressRows(store: Store, orderIdTail: string): Promise<AddressRow[]> {
+    const rows = await this.getOrderRows(store, orderIdTail);
+    return addressRowsFromRows(rows);
+  }
+
+  /**
+   * ITEM# rows on staging-orders-v2 for an order (TAA-50) — composed off
+   * getOrderRows, no new query. Sibling to getShipmentItemsByPk, which reads
+   * the equivalent rows on staging-shipments.
+   */
+  async getOrderItemRows(store: Store, orderIdTail: string): Promise<OrderItemRow[]> {
+    const rows = await this.getOrderRows(store, orderIdTail);
+    return orderItemRowsFromRows(rows);
   }
 
   /**

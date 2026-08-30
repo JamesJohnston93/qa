@@ -28,9 +28,14 @@
  *      holds the plain store number (e.g. "100" — not "BRANCH_100").
  *
  * staging-orders-v2 row shapes (by SK prefix):
- *   "ORDER"            - order summary (shopifyExternalOrderId, status, totals)
- *   "ADDRESS#BILLING" / "ADDRESS#SHIPPING"
- *   "ITEM#<uuid>"      - one row per unit (sku, status, shopifyLineItemId, totals)
+ *   "ORDER"            - order summary (shopifyExternalOrderId, status, totals,
+ *                        paymentMethod [singular, array], onHold [array of
+ *                        reason strings, absent unless held] - see OrderRecord,
+ *                        TAA-50)
+ *   "ADDRESS#BILLING" / "ADDRESS#SHIPPING" - see AddressRow, TAA-50
+ *   "ITEM#<uuid>"      - one row per unit (sku, status, shopifyLineItemId, totals,
+ *                        deliveryMethod, clickCollectStore [CLICKCOLLECT rows
+ *                        only], discountInfo - see OrderItemRow, TAA-50)
  *   "TRANSACTION#<ts>" - event log (CREATE_ORDER, etc.)
  *
  * staging-shipments row shapes (by SK prefix):
@@ -46,6 +51,9 @@ exports.transactionRowsFromRows = transactionRowsFromRows;
 exports.transactionRowsByEvent = transactionRowsByEvent;
 exports.orderSkuQuantitiesFromRows = orderSkuQuantitiesFromRows;
 exports.orderPkFromRows = orderPkFromRows;
+exports.orderRecordFromRows = orderRecordFromRows;
+exports.addressRowsFromRows = addressRowsFromRows;
+exports.orderItemRowsFromRows = orderItemRowsFromRows;
 exports.shipmentSummariesFromRows = shipmentSummariesFromRows;
 exports.groupItemsByShipment = groupItemsByShipment;
 exports.allocationSummary = allocationSummary;
@@ -128,6 +136,84 @@ function orderPkFromRows(rows) {
     return String((orderRow ?? rows[0]).PK);
 }
 /**
+ * The ORDER row -> OrderRecord, or null if the order hasn't landed in
+ * staging-orders-v2 yet (no ORDER row present). Pure — offline-testable,
+ * same split as orderPkFromRows/orderSkuQuantitiesFromRows above.
+ */
+function orderRecordFromRows(rows) {
+    const row = rows.find((r) => r.SK === "ORDER");
+    if (!row) {
+        return null;
+    }
+    const paymentMethod = Array.isArray(row.paymentMethod)
+        ? row.paymentMethod.map((entry) => ({
+            method: String(entry.method ?? ""),
+            amount: Number(entry.amount ?? 0),
+        }))
+        : [];
+    return {
+        status: String(row.status ?? ""),
+        onHold: Array.isArray(row.onHold) ? row.onHold.map(String) : [],
+        paymentMethod,
+        subtotal: Number(row.subtotal ?? 0),
+        grandTotal: Number(row.grandTotal ?? 0),
+        currency: row.currency ? String(row.currency) : null,
+        customerId: String(row.customerId ?? ""),
+        raw: row,
+    };
+}
+/** ADDRESS# rows -> AddressRow[], in whatever order the Query returned. Pure — offline-testable. */
+function addressRowsFromRows(rows) {
+    const addresses = [];
+    for (const row of rows) {
+        const sk = String(row.SK ?? "");
+        if (sk !== "ADDRESS#SHIPPING" && sk !== "ADDRESS#BILLING") {
+            continue;
+        }
+        addresses.push({
+            type: sk === "ADDRESS#SHIPPING" ? "SHIPPING" : "BILLING",
+            street1: String(row.street1 ?? ""),
+            phone: String(row.phone ?? ""),
+            customerId: String(row.customerId ?? ""),
+            firstName: String(row.firstName ?? ""),
+            lastName: String(row.lastName ?? ""),
+            city: String(row.city ?? ""),
+            state: String(row.state ?? ""),
+            postalCode: String(row.postalCode ?? ""),
+            country: String(row.country ?? ""),
+            countryCode: String(row.countryCode ?? ""),
+            origin: String(row.origin ?? ""),
+            createdAt: Number(row.createdAt ?? 0),
+            updatedAt: Number(row.updatedAt ?? 0),
+            emailAddress: row.emailAddress ? String(row.emailAddress) : null,
+            raw: row,
+        });
+    }
+    return addresses;
+}
+/** ITEM# rows on staging-orders-v2 -> OrderItemRow[]. Pure — offline-testable. */
+function orderItemRowsFromRows(rows) {
+    const items = [];
+    for (const row of rows) {
+        const sk = String(row.SK ?? "");
+        if (!sk.startsWith("ITEM#")) {
+            continue;
+        }
+        items.push({
+            sku: String(row.sku ?? ""),
+            status: String(row.status ?? ""),
+            deliveryMethod: String(row.deliveryMethod ?? ""),
+            clickCollectStore: row.clickCollectStore ? String(row.clickCollectStore) : null,
+            subtotal: Number(row.subtotal ?? 0),
+            grandTotal: Number(row.grandTotal ?? 0),
+            discountInfo: Array.isArray(row.discountInfo) ? row.discountInfo : [],
+            shopifyLineItemId: String(row.shopifyLineItemId ?? ""),
+            raw: row,
+        });
+    }
+    return items;
+}
+/**
  * SHIPMENT# rows -> ShipmentSummary[]. Pure — offline-testable, and lets
  * getShipmentsByPk and getShipmentItemsByPk derive their views from the same
  * fetched rows instead of each re-querying staging-shipments.
@@ -199,6 +285,32 @@ class DynamoReader {
     async getOrderPk(store, orderIdTail) {
         const rows = await this.getOrderRows(store, orderIdTail);
         return orderPkFromRows(rows);
+    }
+    /**
+     * The ORDER row's hold/payment/totals surface (TAA-50) — composed off
+     * getOrderRows, same pattern as getOrderPk/getOrderSkuQuantities: no new
+     * query. Null if the order hasn't landed yet.
+     */
+    async getOrderRecord(store, orderIdTail) {
+        const rows = await this.getOrderRows(store, orderIdTail);
+        return orderRecordFromRows(rows);
+    }
+    /**
+     * ADDRESS#SHIPPING and ADDRESS#BILLING rows for an order (TAA-50) —
+     * composed off getOrderRows, no new query.
+     */
+    async getAddressRows(store, orderIdTail) {
+        const rows = await this.getOrderRows(store, orderIdTail);
+        return addressRowsFromRows(rows);
+    }
+    /**
+     * ITEM# rows on staging-orders-v2 for an order (TAA-50) — composed off
+     * getOrderRows, no new query. Sibling to getShipmentItemsByPk, which reads
+     * the equivalent rows on staging-shipments.
+     */
+    async getOrderItemRows(store, orderIdTail) {
+        const rows = await this.getOrderRows(store, orderIdTail);
+        return orderItemRowsFromRows(rows);
     }
     /**
      * `TRANSACTION#` rows for an order from staging-orders-v2 (TAA-48) —
