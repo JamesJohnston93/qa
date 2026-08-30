@@ -31,6 +31,10 @@ Options:
 
 For ad-hoc order placement (not a regression run), use the "order" subcommand:
   node dist/index.js order --help
+
+For the opt-in orders-service hold lifecycle cases (TC7-12, TAA-54), which are
+NOT part of the default set above, use the "orders" subcommand:
+  node dist/index.js orders --help
 `);
 }
 
