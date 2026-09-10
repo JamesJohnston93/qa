@@ -1,0 +1,67 @@
+Read CLAUDE.md in ~/Desktop/testing-tools. Stage staging, profile staging, region ap-southeast-2.
+
+BUSY-1067 EPIC E2E PASS - SESSION 4 of 7: E4, one bad record cannot take good ones with it.
+Bus-injection only. Fresh session, no memory of the others.
+
+GUARDRAILS
+- Cin7 is PRODUCTION and GET-only. No POST/PUT/PATCH/DELETE, ever.
+- LEAVE THE WATERMARK AT UNSET. Do not set it at all this session.
+- Do not touch staging/manhattan/oauth2. Do not modify any alarm, dashboard, Lambda config,
+  EventBridge rule, Confluence page or Jira issue.
+- Every emit-cin7-record.sh call is dry-run first, shown to me, and only then re-run with --confirm.
+- Synthetic payload rules from CLAUDE.md: use desc not description, and include additional_eans: [].
+- Manhattan always returns HTTP 200. Judge delivery on accepted=N rejected=0 and rejectedTransactions.
+- E7 already PASSED on 19 Aug. Do not break the Cin7 secret or force an outage.
+- Tag every claim MEASURED / INFERRED / UNKNOWN. Anything you cannot substantiate: flag it, do not
+  fill it. Append every step to ~/Desktop/testing-tools/BUSY-1067-E2E-LOG.md with UTC timestamps.
+
+STEP 0 - STATE CHECK (read-only, ~3 min)
+Read the LAST "=== STATE ===" block in the log. Then verify live:
+a) aws sts get-caller-identity --profile staging
+b) ./cin7-watermark.sh --stage staging --profile staging - expect UNSET
+c) ./check-status.sh --stage staging --profile staging - four alarm states, queue depths, and THE DLQ
+   DEPTH. Expected: session 3's baseline + 1, the expected E5 part B poison. Note both figures. This
+   session will add exactly ONE more.
+d) The poller log group: expect Cin7ItemPollerInactive
+If live state contradicts the STATE block, STOP and tell me before changing anything.
+
+STEP 1 - INJECT 11 RECORDS INTO ONE WINDOW
+1 poison: --size at 26 characters.
+10 controls: valid records, distinct item_codes, each with a barcode.
+Dry-run the batch, show me one representative command, then confirm.
+Record the exact injection times and every item_code.
+
+STEP 2 - CONTAINMENT: DID BISECT RUN
+From the buffer handler log, quote processWithBisect and "Poison pill identified".
+
+STEP 3 - NO LOSS: DID ALL TEN CONTROLS GET THROUGH
+All 10 controls delivered with accepted=10 rejected=0 INSIDE ONE CYCLE. List all 10 item_codes
+against their send confirmations. 9 out of 10 is a FAIL, not a rounding error.
+
+STEP 4 - THE ABORTED SEND
+The sender invocation that handled the poison must log the validation reason and must NOT log
+ManhattanRequestOutcome. If you see accepted= anywhere in that invocation you reproduced a Manhattan
+REJECTION rather than a pre-send validation throw, which answers a different question - say so
+explicitly rather than reporting it as the same thing.
+
+STEP 5 - THE POISON'S FATE
+Poll the DLQ every 5 minutes for up to 45 minutes until the poison arrives. Confirm:
+  - ApproximateReceiveCount is 11 (10 retries plus the original)
+  - the message body is byte-for-byte identical to what was injected - diff it, do not eyeball it
+  - DLQ depth is exactly this session's step 0 baseline + 1
+If we get cut off before it arrives, that is fine and does not invalidate anything: DLQ retention is
+4 days and a later session can read it. Say so in the log rather than rushing.
+
+STEP 6 - E4 VERDICT
+Report BOTH halves, in this order and in these terms: there is no per-record containment inside the
+sender, AND nothing is lost. Both are true and the second is the one the DC team cares about.
+
+STEP 9 - PARK AND HAND OFF
+a) Confirm the watermark is still UNSET by direct get-parameter.
+b) Confirm the buffer queue is 0 visible / 0 in flight.
+c) Append a "=== STATE (end of session 4) ===" block: the E4 verdict, watermark value and version,
+   four alarm states, queue depths, and the DLQ depth with its accounting spelled out (expected +2
+   across the pass so far, actual N, explained).
+d) Print to me: the verdict in one line, anything needing my decision, and the literal line
+   "Session 4 complete. Run the Session 5 prompt in a fresh session."
+Then stop.

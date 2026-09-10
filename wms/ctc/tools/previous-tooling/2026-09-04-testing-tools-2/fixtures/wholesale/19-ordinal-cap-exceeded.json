@@ -1,0 +1,737 @@
+{
+  "id": 876493,
+  "createdDate": "2026-02-04T04:24:12Z",
+  "modifiedDate": "2026-08-27T05:26:59Z",
+  "createdBy": 0,
+  "processedBy": 0,
+  "isApproved": true,
+  "reference": "982409Aug26",
+  "memberId": 155,
+  "firstName": "Jamie",
+  "lastName": "Reyes",
+  "company": "Test Customer Pty Ltd",
+  "email": "ctc.customer@example-test.invalid",
+  "phone": "0400000000",
+  "mobile": "",
+  "fax": "",
+  "deliveryFirstName": "Jamie",
+  "deliveryLastName": "Reyes",
+  "deliveryCompany": "Retailer International Pty Ltd",
+  "deliveryAddress1": "55 Changed Avenue",
+  "deliveryAddress2": "",
+  "deliveryCity": "Barwon Heads",
+  "deliveryState": "VIC",
+  "deliveryPostalCode": "3227",
+  "deliveryCountry": "Australia",
+  "billingFirstName": "",
+  "billingLastName": "",
+  "billingCompany": "Test Customer Pty Ltd",
+  "billingAddress1": "12 Riverside Dr",
+  "billingAddress2": "",
+  "billingCity": "",
+  "billingPostalCode": "",
+  "billingState": "",
+  "billingCountry": "",
+  "branchId": 51909,
+  "branchEmail": "accounts@thrills.co",
+  "projectName": "333 - Thrills Spring 26 - AUS - Womens",
+  "trackingCode": "",
+  "internalComments": "merged 982408Aug26",
+  "productTotal": 940.89,
+  "freightTotal": 0.0,
+  "freightDescription": "",
+  "surcharge": 0.0,
+  "surchargeDescription": null,
+  "discountTotal": 0.0,
+  "discountDescription": "Pay Now Discount",
+  "total": 1034.979,
+  "currencyCode": "AUD",
+  "currencyRate": 1.0,
+  "currencySymbol": "$",
+  "taxStatus": "Excl",
+  "taxRate": 0.1,
+  "source": "API",
+  "customFields": {
+    "orders_1000": null,
+    "orders_1001": null,
+    "orders_1002": null,
+    "orders_1003": null,
+    "orders_1004": null,
+    "orders_1005": "",
+    "orders_1006": null
+  },
+  "isVoid": false,
+  "accountingAttributes": {
+    "importDate": null,
+    "accountingImportStatus": "NotImported"
+  },
+  "memberEmail": "tony1@tonik.com.au",
+  "memberCostCenter": "",
+  "memberAlternativeTaxRate": "",
+  "costCenter": "",
+  "alternativeTaxRate": null,
+  "estimatedDeliveryDate": "2026-09-02T04:08:00Z",
+  "salesPersonId": 0,
+  "salesPersonEmail": null,
+  "paymentTerms": "30 days from invoice",
+  "customerOrderNo": "TEST-ORDER-NO",
+  "voucherCode": null,
+  "deliveryInstructions": "",
+  "cancellationDate": "2026-08-29T14:38:00Z",
+  "modifiedCOGSDate": null,
+  "status": "APPROVED",
+  "stage": "New",
+  "invoiceDate": null,
+  "invoiceNumber": 0,
+  "dispatchedDate": null,
+  "logisticsCarrier": "",
+  "logisticsStatus": 0,
+  "ediStatus": 0,
+  "distributionBranchId": 0,
+  "departmentNumber": null,
+  "storeLocationNumber": null,
+  "distributionCenter": null,
+  "lineItems": [
+    {
+      "id": 3239305,
+      "createdDate": "2026-02-05T13:29:22Z",
+      "transactionId": 876493,
+      "parentId": 0,
+      "productId": 48923,
+      "productOptionId": 49128,
+      "integrationRef": "0",
+      "sort": 1,
+      "code": "WTH26-116AHW",
+      "name": "Last Stop Box Fit Tee - Heritage White",
+      "option1": null,
+      "option2": null,
+      "option3": "1 x 4\r\n3 x 6\r\n3 x 8\r\n2 x 10\r\n1 x 12",
+      "qty": 101.0,
+      "styleCode": "WTH26-116AHW",
+      "barcode": null,
+      "sizeCodes": "1|4|WTH26-116AHW-4|9346792281656\n3|6|WTH26-116AHW-6|9346792281663\n3|8|WTH26-116AHW-8|9346792281670\n2|10|WTH26-116AHW-10|9346792281687\n1|12|WTH26-116AHW-12|9346792281694",
+      "lineComments": null,
+      "unitCost": 0.0,
+      "unitPrice": 27.27,
+      "uomPrice": 0.0,
+      "discount": 0.0,
+      "uomQtyOrdered": 0.0,
+      "uomQtyShipped": 0.0,
+      "uomSize": 0.0,
+      "qtyShipped": 0.0,
+      "holdingQty": 0.0,
+      "accountCode": null,
+      "stockControl": "Batch",
+      "stockMovements": [],
+      "sizes": [
+        {
+          "name": "000",
+          "code": "WTH26-116AHW-000",
+          "barcode": "9346792992429",
+          "qty": 1.0
+        },
+        {
+          "name": "001",
+          "code": "WTH26-116AHW-001",
+          "barcode": "9346792991403",
+          "qty": 1.0
+        },
+        {
+          "name": "002",
+          "code": "WTH26-116AHW-002",
+          "barcode": "9346792990833",
+          "qty": 1.0
+        },
+        {
+          "name": "003",
+          "code": "WTH26-116AHW-003",
+          "barcode": "9346792997655",
+          "qty": 1.0
+        },
+        {
+          "name": "004",
+          "code": "WTH26-116AHW-004",
+          "barcode": "9346792997988",
+          "qty": 1.0
+        },
+        {
+          "name": "005",
+          "code": "WTH26-116AHW-005",
+          "barcode": "9346792999058",
+          "qty": 1.0
+        },
+        {
+          "name": "006",
+          "code": "WTH26-116AHW-006",
+          "barcode": "9346792990488",
+          "qty": 1.0
+        },
+        {
+          "name": "007",
+          "code": "WTH26-116AHW-007",
+          "barcode": "9346792998558",
+          "qty": 1.0
+        },
+        {
+          "name": "008",
+          "code": "WTH26-116AHW-008",
+          "barcode": "9346792992271",
+          "qty": 1.0
+        },
+        {
+          "name": "009",
+          "code": "WTH26-116AHW-009",
+          "barcode": "9346792991337",
+          "qty": 1.0
+        },
+        {
+          "name": "010",
+          "code": "WTH26-116AHW-010",
+          "barcode": "9346792991980",
+          "qty": 1.0
+        },
+        {
+          "name": "011",
+          "code": "WTH26-116AHW-011",
+          "barcode": "9346792999114",
+          "qty": 1.0
+        },
+        {
+          "name": "012",
+          "code": "WTH26-116AHW-012",
+          "barcode": "9346792990080",
+          "qty": 1.0
+        },
+        {
+          "name": "013",
+          "code": "WTH26-116AHW-013",
+          "barcode": "9346792996582",
+          "qty": 1.0
+        },
+        {
+          "name": "014",
+          "code": "WTH26-116AHW-014",
+          "barcode": "9346792995605",
+          "qty": 1.0
+        },
+        {
+          "name": "015",
+          "code": "WTH26-116AHW-015",
+          "barcode": "9346792991555",
+          "qty": 1.0
+        },
+        {
+          "name": "016",
+          "code": "WTH26-116AHW-016",
+          "barcode": "9346792994953",
+          "qty": 1.0
+        },
+        {
+          "name": "017",
+          "code": "WTH26-116AHW-017",
+          "barcode": "9346792999423",
+          "qty": 1.0
+        },
+        {
+          "name": "018",
+          "code": "WTH26-116AHW-018",
+          "barcode": "9346792993870",
+          "qty": 1.0
+        },
+        {
+          "name": "019",
+          "code": "WTH26-116AHW-019",
+          "barcode": "9346792993240",
+          "qty": 1.0
+        },
+        {
+          "name": "020",
+          "code": "WTH26-116AHW-020",
+          "barcode": "9346792993295",
+          "qty": 1.0
+        },
+        {
+          "name": "021",
+          "code": "WTH26-116AHW-021",
+          "barcode": "9346792990825",
+          "qty": 1.0
+        },
+        {
+          "name": "022",
+          "code": "WTH26-116AHW-022",
+          "barcode": "9346792998147",
+          "qty": 1.0
+        },
+        {
+          "name": "023",
+          "code": "WTH26-116AHW-023",
+          "barcode": "9346792995093",
+          "qty": 1.0
+        },
+        {
+          "name": "024",
+          "code": "WTH26-116AHW-024",
+          "barcode": "9346792993542",
+          "qty": 1.0
+        },
+        {
+          "name": "025",
+          "code": "WTH26-116AHW-025",
+          "barcode": "9346792996864",
+          "qty": 1.0
+        },
+        {
+          "name": "026",
+          "code": "WTH26-116AHW-026",
+          "barcode": "9346792991722",
+          "qty": 1.0
+        },
+        {
+          "name": "027",
+          "code": "WTH26-116AHW-027",
+          "barcode": "9346792996220",
+          "qty": 1.0
+        },
+        {
+          "name": "028",
+          "code": "WTH26-116AHW-028",
+          "barcode": "9346792997005",
+          "qty": 1.0
+        },
+        {
+          "name": "029",
+          "code": "WTH26-116AHW-029",
+          "barcode": "9346792991195",
+          "qty": 1.0
+        },
+        {
+          "name": "030",
+          "code": "WTH26-116AHW-030",
+          "barcode": "9346792993326",
+          "qty": 1.0
+        },
+        {
+          "name": "031",
+          "code": "WTH26-116AHW-031",
+          "barcode": "9346792992360",
+          "qty": 1.0
+        },
+        {
+          "name": "032",
+          "code": "WTH26-116AHW-032",
+          "barcode": "9346792999394",
+          "qty": 1.0
+        },
+        {
+          "name": "033",
+          "code": "WTH26-116AHW-033",
+          "barcode": "9346792996324",
+          "qty": 1.0
+        },
+        {
+          "name": "034",
+          "code": "WTH26-116AHW-034",
+          "barcode": "9346792991639",
+          "qty": 1.0
+        },
+        {
+          "name": "035",
+          "code": "WTH26-116AHW-035",
+          "barcode": "9346792993185",
+          "qty": 1.0
+        },
+        {
+          "name": "036",
+          "code": "WTH26-116AHW-036",
+          "barcode": "9346792998187",
+          "qty": 1.0
+        },
+        {
+          "name": "037",
+          "code": "WTH26-116AHW-037",
+          "barcode": "9346792999389",
+          "qty": 1.0
+        },
+        {
+          "name": "038",
+          "code": "WTH26-116AHW-038",
+          "barcode": "9346792999068",
+          "qty": 1.0
+        },
+        {
+          "name": "039",
+          "code": "WTH26-116AHW-039",
+          "barcode": "9346792998330",
+          "qty": 1.0
+        },
+        {
+          "name": "040",
+          "code": "WTH26-116AHW-040",
+          "barcode": "9346792991929",
+          "qty": 1.0
+        },
+        {
+          "name": "041",
+          "code": "WTH26-116AHW-041",
+          "barcode": "9346792995647",
+          "qty": 1.0
+        },
+        {
+          "name": "042",
+          "code": "WTH26-116AHW-042",
+          "barcode": "9346792993221",
+          "qty": 1.0
+        },
+        {
+          "name": "043",
+          "code": "WTH26-116AHW-043",
+          "barcode": "9346792995299",
+          "qty": 1.0
+        },
+        {
+          "name": "044",
+          "code": "WTH26-116AHW-044",
+          "barcode": "9346792990816",
+          "qty": 1.0
+        },
+        {
+          "name": "045",
+          "code": "WTH26-116AHW-045",
+          "barcode": "9346792993510",
+          "qty": 1.0
+        },
+        {
+          "name": "046",
+          "code": "WTH26-116AHW-046",
+          "barcode": "9346792995772",
+          "qty": 1.0
+        },
+        {
+          "name": "047",
+          "code": "WTH26-116AHW-047",
+          "barcode": "9346792992218",
+          "qty": 1.0
+        },
+        {
+          "name": "048",
+          "code": "WTH26-116AHW-048",
+          "barcode": "9346792991323",
+          "qty": 1.0
+        },
+        {
+          "name": "049",
+          "code": "WTH26-116AHW-049",
+          "barcode": "9346792990589",
+          "qty": 1.0
+        },
+        {
+          "name": "050",
+          "code": "WTH26-116AHW-050",
+          "barcode": "9346792992392",
+          "qty": 1.0
+        },
+        {
+          "name": "051",
+          "code": "WTH26-116AHW-051",
+          "barcode": "9346792994270",
+          "qty": 1.0
+        },
+        {
+          "name": "052",
+          "code": "WTH26-116AHW-052",
+          "barcode": "9346792991556",
+          "qty": 1.0
+        },
+        {
+          "name": "053",
+          "code": "WTH26-116AHW-053",
+          "barcode": "9346792993314",
+          "qty": 1.0
+        },
+        {
+          "name": "054",
+          "code": "WTH26-116AHW-054",
+          "barcode": "9346792996497",
+          "qty": 1.0
+        },
+        {
+          "name": "055",
+          "code": "WTH26-116AHW-055",
+          "barcode": "9346792994071",
+          "qty": 1.0
+        },
+        {
+          "name": "056",
+          "code": "WTH26-116AHW-056",
+          "barcode": "9346792992173",
+          "qty": 1.0
+        },
+        {
+          "name": "057",
+          "code": "WTH26-116AHW-057",
+          "barcode": "9346792995019",
+          "qty": 1.0
+        },
+        {
+          "name": "058",
+          "code": "WTH26-116AHW-058",
+          "barcode": "9346792990986",
+          "qty": 1.0
+        },
+        {
+          "name": "059",
+          "code": "WTH26-116AHW-059",
+          "barcode": "9346792990556",
+          "qty": 1.0
+        },
+        {
+          "name": "060",
+          "code": "WTH26-116AHW-060",
+          "barcode": "9346792990443",
+          "qty": 1.0
+        },
+        {
+          "name": "061",
+          "code": "WTH26-116AHW-061",
+          "barcode": "9346792990493",
+          "qty": 1.0
+        },
+        {
+          "name": "062",
+          "code": "WTH26-116AHW-062",
+          "barcode": "9346792991495",
+          "qty": 1.0
+        },
+        {
+          "name": "063",
+          "code": "WTH26-116AHW-063",
+          "barcode": "9346792995921",
+          "qty": 1.0
+        },
+        {
+          "name": "064",
+          "code": "WTH26-116AHW-064",
+          "barcode": "9346792992370",
+          "qty": 1.0
+        },
+        {
+          "name": "065",
+          "code": "WTH26-116AHW-065",
+          "barcode": "9346792992244",
+          "qty": 1.0
+        },
+        {
+          "name": "066",
+          "code": "WTH26-116AHW-066",
+          "barcode": "9346792992398",
+          "qty": 1.0
+        },
+        {
+          "name": "067",
+          "code": "WTH26-116AHW-067",
+          "barcode": "9346792990344",
+          "qty": 1.0
+        },
+        {
+          "name": "068",
+          "code": "WTH26-116AHW-068",
+          "barcode": "9346792993705",
+          "qty": 1.0
+        },
+        {
+          "name": "069",
+          "code": "WTH26-116AHW-069",
+          "barcode": "9346792995871",
+          "qty": 1.0
+        },
+        {
+          "name": "070",
+          "code": "WTH26-116AHW-070",
+          "barcode": "9346792991386",
+          "qty": 1.0
+        },
+        {
+          "name": "071",
+          "code": "WTH26-116AHW-071",
+          "barcode": "9346792992940",
+          "qty": 1.0
+        },
+        {
+          "name": "072",
+          "code": "WTH26-116AHW-072",
+          "barcode": "9346792991830",
+          "qty": 1.0
+        },
+        {
+          "name": "073",
+          "code": "WTH26-116AHW-073",
+          "barcode": "9346792996240",
+          "qty": 1.0
+        },
+        {
+          "name": "074",
+          "code": "WTH26-116AHW-074",
+          "barcode": "9346792998531",
+          "qty": 1.0
+        },
+        {
+          "name": "075",
+          "code": "WTH26-116AHW-075",
+          "barcode": "9346792996629",
+          "qty": 1.0
+        },
+        {
+          "name": "076",
+          "code": "WTH26-116AHW-076",
+          "barcode": "9346792990799",
+          "qty": 1.0
+        },
+        {
+          "name": "077",
+          "code": "WTH26-116AHW-077",
+          "barcode": "9346792995449",
+          "qty": 1.0
+        },
+        {
+          "name": "078",
+          "code": "WTH26-116AHW-078",
+          "barcode": "9346792993832",
+          "qty": 1.0
+        },
+        {
+          "name": "079",
+          "code": "WTH26-116AHW-079",
+          "barcode": "9346792991070",
+          "qty": 1.0
+        },
+        {
+          "name": "080",
+          "code": "WTH26-116AHW-080",
+          "barcode": "9346792991701",
+          "qty": 1.0
+        },
+        {
+          "name": "081",
+          "code": "WTH26-116AHW-081",
+          "barcode": "9346792998099",
+          "qty": 1.0
+        },
+        {
+          "name": "082",
+          "code": "WTH26-116AHW-082",
+          "barcode": "9346792995145",
+          "qty": 1.0
+        },
+        {
+          "name": "083",
+          "code": "WTH26-116AHW-083",
+          "barcode": "9346792996687",
+          "qty": 1.0
+        },
+        {
+          "name": "084",
+          "code": "WTH26-116AHW-084",
+          "barcode": "9346792995628",
+          "qty": 1.0
+        },
+        {
+          "name": "085",
+          "code": "WTH26-116AHW-085",
+          "barcode": "9346792991978",
+          "qty": 1.0
+        },
+        {
+          "name": "086",
+          "code": "WTH26-116AHW-086",
+          "barcode": "9346792990288",
+          "qty": 1.0
+        },
+        {
+          "name": "087",
+          "code": "WTH26-116AHW-087",
+          "barcode": "9346792990934",
+          "qty": 1.0
+        },
+        {
+          "name": "088",
+          "code": "WTH26-116AHW-088",
+          "barcode": "9346792992903",
+          "qty": 1.0
+        },
+        {
+          "name": "089",
+          "code": "WTH26-116AHW-089",
+          "barcode": "9346792997249",
+          "qty": 1.0
+        },
+        {
+          "name": "090",
+          "code": "WTH26-116AHW-090",
+          "barcode": "9346792995444",
+          "qty": 1.0
+        },
+        {
+          "name": "091",
+          "code": "WTH26-116AHW-091",
+          "barcode": "9346792997858",
+          "qty": 1.0
+        },
+        {
+          "name": "092",
+          "code": "WTH26-116AHW-092",
+          "barcode": "9346792996648",
+          "qty": 1.0
+        },
+        {
+          "name": "093",
+          "code": "WTH26-116AHW-093",
+          "barcode": "9346792995726",
+          "qty": 1.0
+        },
+        {
+          "name": "094",
+          "code": "WTH26-116AHW-094",
+          "barcode": "9346792992445",
+          "qty": 1.0
+        },
+        {
+          "name": "095",
+          "code": "WTH26-116AHW-095",
+          "barcode": "9346792995819",
+          "qty": 1.0
+        },
+        {
+          "name": "096",
+          "code": "WTH26-116AHW-096",
+          "barcode": "9346792997713",
+          "qty": 1.0
+        },
+        {
+          "name": "097",
+          "code": "WTH26-116AHW-097",
+          "barcode": "9346792996903",
+          "qty": 1.0
+        },
+        {
+          "name": "098",
+          "code": "WTH26-116AHW-098",
+          "barcode": "9346792990310",
+          "qty": 1.0
+        },
+        {
+          "name": "099",
+          "code": "WTH26-116AHW-099",
+          "barcode": "9346792997104",
+          "qty": 1.0
+        },
+        {
+          "name": "100",
+          "code": "WTH26-116AHW-100",
+          "barcode": "9346792992058",
+          "qty": 1.0
+        }
+      ],
+      "taxRate": 0.0
+    }
+  ]
+}

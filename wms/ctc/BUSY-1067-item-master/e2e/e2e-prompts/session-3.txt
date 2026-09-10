@@ -1,0 +1,74 @@
+Read CLAUDE.md in ~/Desktop/testing-tools. Stage staging, profile staging, region ap-southeast-2.
+
+BUSY-1067 EPIC E2E PASS - SESSION 3 of 7: E2 (cross-company isolation) and E5 (mapping, defaults and
+length edges). Both are bus-injection only. Fresh session, no memory of the others.
+
+GUARDRAILS
+- Cin7 is PRODUCTION and GET-only. No POST/PUT/PATCH/DELETE, ever. Injection goes onto
+  staging-catalog-manhattan-events, never to Cin7.
+- LEAVE THE WATERMARK AT UNSET THE WHOLE SESSION. Do not set it at all. Injection bypasses the
+  poller, so an active poller would only add real traffic to the windows we are trying to read.
+- Do not touch staging/manhattan/oauth2. Do not modify any alarm, dashboard, Lambda config,
+  EventBridge rule, Confluence page or Jira issue.
+- Every emit-cin7-record.sh call is dry-run first, shown to me, and only then re-run with --confirm.
+- Synthetic payload rules from CLAUDE.md: use desc not description, and include additional_eans: []
+  or the sender throws instead of validating.
+- Manhattan always returns HTTP 200. Judge delivery on accepted=N rejected=0 and rejectedTransactions.
+- E7 already PASSED on 19 Aug. Do not break the Cin7 secret or force an outage.
+- Injection is not the poller: it builds message_group_id by raw concatenation while the real poller
+  collapses whitespace runs to an underscore. A failure seen only through injection is not
+  automatically a live defect - say so if it comes up.
+- Tag every claim MEASURED / INFERRED / UNKNOWN. Anything you cannot substantiate: flag it, do not
+  fill it. Append every step to ~/Desktop/testing-tools/BUSY-1067-E2E-LOG.md with UTC timestamps.
+
+STEP 0 - STATE CHECK (read-only, ~3 min)
+Read the LAST "=== STATE ===" block in the log. Then verify live:
+a) aws sts get-caller-identity --profile staging
+b) ./cin7-watermark.sh --stage staging --profile staging - expect UNSET
+c) ./check-status.sh --stage staging --profile staging - four alarm states, queue depths, and THE DLQ
+   DEPTH, which is this session's baseline
+d) The poller log group: expect Cin7ItemPollerInactive
+If live state contradicts the STATE block, STOP and tell me before changing anything.
+
+STEP 1 - E2, CROSS-COMPANY ISOLATION
+Inject item_code 3141592 twice inside ONE buffer window: once with --company CTC, once with
+--company UNI. Keep the UNI code numeric - a non-numeric UNI code becomes a second poison and
+answers a different question.
+Assert, each separately:
+  - the populator shows CTC#3141592 and UNI#3141592 as two DISTINCT message_group_ids
+  - the sender makes TWO SAVE calls, each accepted with rejected=0
+  - no coalescing across companies - the two never merge into one send
+E2 verdict, with the lines quoted.
+
+STEP 2 - E5 PART A, the four benign edges, ONE window
+Inject four records:
+  a) --no-barcode          expect a present-but-EMPTY <XRefs></XRefs> in the XML, and accepted
+  b) --blank-category      expect ItemClass=CTC-000
+  c) height/length/width all 0 (the default)  expect a ManhattanDefaultedField log line with
+     company:"CTC", and 0.1 sent for each dimension with DimensionUm=MM
+  d) --desc-raw at exactly 101 characters   expect it to ARRIVE TRUNCATED TO 100, silently: no log
+     line, no metric
+Report each of the four as its own PASS or FAIL with the observed value quoted. Two of these
+truncate and two do not: do not state one behaviour for all of them.
+Confirm rejected=0 across this window and the DLQ depth unchanged.
+
+STEP 3 - E5 PART B, the length error, ITS OWN window
+Inject one record with --size at 26 characters. Expect the sender to error with
+reason:"size_too_long" and NOT to reach Manhattan.
+This record is a poison: it will retry to maxReceiveCount and land in the buffer DLQ. That is
+EXPECTED, it is the correct behaviour, and it is exactly ONE message. Record the DLQ depth going to
+baseline+1 and say plainly that this is expected, not loss.
+Field limits for reference: Desc 100, Colour 25, Size 25, item_code 50.
+
+STEP 4 - VERDICTS
+E2 and E5 each as their own PASS or FAIL with the evidence named.
+
+STEP 9 - PARK AND HAND OFF
+a) Confirm the watermark is still UNSET by direct get-parameter (you should not have changed it).
+b) Confirm the buffer queue is 0 visible / 0 in flight.
+c) Append a "=== STATE (end of session 3) ===" block: both verdicts, watermark value and version,
+   four alarm states, queue depths, and the DLQ depth recorded explicitly as "baseline + 1 from E5
+   part B, expected" so session 4 starts from the right number.
+d) Print to me: both verdicts in one line each, anything needing my decision, and the literal line
+   "Session 3 complete. Run the Session 4 prompt in a fresh session."
+Then stop.

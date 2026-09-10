@@ -1,0 +1,78 @@
+Read CLAUDE.md in ~/Desktop/testing-tools. Stage staging, profile staging, region ap-southeast-2.
+
+BUSY-1067 EPIC E2E PASS - SESSION 6 of 7: E8, quiet steady state, tooling health, shutdown. This is
+the last session that touches AWS and it ends with the watermark at UNSET. Fresh session, no memory
+of the others.
+
+This session has a real objective beyond the shutdown: it manufactures the zero-record ACTIVE cycle
+that BUSY-1117 AC5 has never been able to observe. The 19 Aug re-run found ZERO such cycles in 7 days
+of retained history, so AC5 currently sits at UNKNOWN. Treat step 2 as the point of the session.
+
+GUARDRAILS
+- Cin7 is PRODUCTION and GET-only. No POST/PUT/PATCH/DELETE, ever.
+- Do not touch staging/manhattan/oauth2. Do not modify any alarm, dashboard, Lambda config,
+  EventBridge rule, Confluence page or Jira issue.
+- Run preview-cin7-sync.sh before every watermark --set. Show me the dry run and wait for my OK
+  before you add --confirm.
+- Confirm every SSM write with a direct aws ssm get-parameter read, never a script's success message.
+- E7 already PASSED on 19 Aug. Do not break the Cin7 secret or force an outage.
+- Tag every claim MEASURED / INFERRED / UNKNOWN. Anything you cannot substantiate: flag it, do not
+  fill it. Append every step to ~/Desktop/testing-tools/BUSY-1067-E2E-LOG.md with UTC timestamps.
+
+STEP 0 - STATE CHECK (read-only, ~3 min)
+Read the LAST "=== STATE ===" block in the log. Then verify live:
+a) aws sts get-caller-identity --profile staging
+b) ./cin7-watermark.sh --stage staging --profile staging - literal value and version
+c) ./check-status.sh --stage staging --profile staging - four alarm states, queue depths, DLQ depth
+d) The poller log group: ACTIVE or Cin7ItemPollerInactive?
+If live state contradicts the STATE block, STOP and tell me before changing anything.
+
+STEP 1 - MANUFACTURE A GENUINELY QUIET ACTIVE POLLER
+Preview, then set the watermark to (now minus 1 minute) with --confirm, and confirm by direct
+get-parameter read. A floor of "now" means the next cycles are ACTIVE but have nothing to fetch,
+which is exactly the state we want to observe.
+
+STEP 2 - THREE QUIET CYCLES, AND THE AC5 ANSWER
+Tail at least 3 consecutive Cin7PollerCycleComplete events with recordsEmitted:0. For EACH ONE record
+whether watermarkAdvanced was true or false. Report as its own finding, MEASURED:
+  - advances on empty cycles -> the staleness alarm stays quiet through a genuinely quiet period,
+    AC5's claim holds structurally
+  - does NOT advance -> watermark-stale will false-positive through any quiet period, which is a
+    PRODUCTION finding, not a staging quirk, because the ticket itself says off-peak CTC months see
+    very few changes
+Do not infer either way. If you cannot get three clean empty cycles, say UNKNOWN.
+
+STEP 3 - NO ALARM MOVED
+describe-alarm-history across this session's window for all four alarms: cin7-poller-errors,
+cin7-watermark-stale, manhattan-sender-validation-failures, manhattan-send-dlq-depth. Confirm no
+transition. Note that send-dlq-depth has been stuck in ALARM since 10 Aug and cannot transition, so
+"no transition" there means nothing either way - say so rather than counting it as a pass.
+
+STEP 4 - TOOLING HEALTH, FIRST LIVE VERIFICATION SINCE THE FIXES
+./check-status.sh --stage staging --profile staging
+Confirm it finds ALL FOUR alarms with none reported NOT FOUND, and reports the buffer queue at 0/0.
+This is the first live run since its two bugs were fixed on 18 Aug, so its own output is under test
+here, not just the pipeline. Cross-check at least one alarm state and the queue depth against a
+direct AWS call and confirm they agree.
+
+STEP 5 - SHUT DOWN
+./cin7-watermark.sh --stage staging --profile staging --unset --confirm
+Confirm Value: UNSET by direct get-parameter read, and confirm the poller logs
+Cin7ItemPollerInactive on its next TWO cycles with no further Cin7PollerCycleComplete. On 13 Aug
+--unset --confirm reported success and the poller ran 11 more active cycles over 33 minutes: that is
+why two cycles, not one.
+Note that watermark-stale will now false-positive on the idle poller. That is expected and already
+recorded, it is not a new finding.
+
+STEP 6 - E8 VERDICT plus the AC5 answer stated separately.
+
+STEP 9 - PARK AND HAND OFF
+a) Confirm the watermark is UNSET and the poller inactive (done in step 5 - restate it).
+b) Confirm the buffer queue is 0/0 and record the DLQ depth.
+c) Append a "=== STATE (end of session 6) ===" block: the E8 verdict, the AC5 answer with its
+   evidence and tag, watermark value and version, four alarm states, queue and DLQ depths, and a
+   plain statement that the pass is complete on AWS and nothing is left changed except the poller
+   Lambda description breadcrumb.
+d) Print to me: the verdict and the AC5 answer in one line each, anything needing my decision, and
+   the literal line "Session 6 complete. Run the Session 7 prompt in a fresh session."
+Then stop.

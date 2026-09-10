@@ -1,0 +1,82 @@
+Read CLAUDE.md in ~/Desktop/testing-tools. Stage staging, profile staging, region ap-southeast-2.
+
+BUSY-1067 EPIC E2E PASS - SESSION 1 of 7: E1, full-chain trace of one real Cin7 change.
+Fresh session, no memory of any other. The pass is documented on Confluence page 1899429895.
+
+GUARDRAILS
+- Cin7 is PRODUCTION and GET-only. No POST/PUT/PATCH/DELETE, and no hand-rolled curl or aws call to
+  work around that, ever. If a test appears to need a Cin7 write, stop and tell me. Do not build or
+  scaffold write tooling.
+- Do not touch staging/manhattan/oauth2. Its blast radius covers UNI and PS as well as CTC.
+- Do not modify any alarm, dashboard, Lambda config, EventBridge rule, Confluence page or Jira issue.
+- Run preview-cin7-sync.sh before every watermark --set. Show me the dry run and wait for my OK
+  before you add --confirm to anything.
+- Confirm every SSM or secret write with a direct aws ssm get-parameter or aws secretsmanager
+  get-secret-value read. Never trust a script's success message: on 13 Aug --unset --confirm reported
+  success and the poller ran 11 more active cycles over 33 minutes.
+- Manhattan always returns HTTP 200. Judge delivery on accepted=N rejected=0 and rejectedTransactions,
+  never on HTTP status.
+- E7 (forced Cin7 outage) already PASSED on 19 Aug. Do not break the Cin7 secret, do not force an
+  outage, do not re-run it.
+- End to end is 6 to 10 minutes. Do not call anything missing before 10 minutes have passed.
+- Tag every claim MEASURED / INFERRED / UNKNOWN. Anything you cannot substantiate: flag it, do not
+  fill it.
+- Append every step to ~/Desktop/testing-tools/BUSY-1067-E2E-LOG.md with UTC timestamps.
+
+STEP 0 - STATE CHECK (read-only, ~3 min)
+a) aws sts get-caller-identity --profile staging
+b) ./cin7-watermark.sh --stage staging --profile staging - record the literal value and version
+c) ./check-status.sh --stage staging --profile staging - record all four alarm states, the buffer
+   queue depths, and THE DLQ DEPTH, which is this session's baseline
+d) The last 10 minutes of /aws/lambda/staging-catalog-cin7-cin7-item-poller: ACTIVE cycles
+   (Cin7PollerCycleComplete) or INACTIVE (Cin7ItemPollerInactive)?
+Expected: watermark UNSET at v249, secret restored and healthy, cin7-poller-errors and
+cin7-watermark-stale both OK, send-dlq-depth in ALARM since 10 Aug (not new, not caused by this
+pass). If live state contradicts that, STOP and tell me before changing anything.
+
+STEP 1 - PICK A CANDIDATE (read-only)
+./preview-cin7-sync.sh --since <now minus 2 hours, UTC ISO8601>
+From the candidates it lists, choose ONE product option that has a real barcode and a real weight,
+not a placeholder. Tell me which one you picked, its product id, its size-suffixed item_code, and
+why. If nothing in the last 2 hours has both, widen to 6 hours and preview again rather than
+settling for a record that cannot exercise XRef and WeightUm.
+
+STEP 2 - SET THE WATERMARK
+Dry run first: ./cin7-watermark.sh --stage staging --profile staging --set <T-2h>
+Show me the dry run, then set it with --confirm, then confirm the new value and version by a direct
+aws ssm get-parameter read. Record the OLD value and version too.
+
+STEP 3 - WATCH THE POLLER
+Poll until you see a Cin7PollerCycleComplete with watermarkAdvanced:true and recordsEmitted>0.
+Record: cycle timestamp, productsFetched, recordsEmitted, recordsSkipped, and the exact value the
+watermark advanced TO. THAT VALUE IS WHAT SESSION 2 NEEDS - record it verbatim, in the log and to me.
+
+STEP 4 - TRACE THE CHOSEN item_code THROUGH ALL FOUR LOG GROUPS, IN ORDER
+poller, then buffer populator, then buffer handler, then sender. Quote the line and timestamp from
+each. Record the observed end-to-end latency.
+
+STEP 5 - ASSERT THE OUTGOING XML, FIELD BY FIELD
+From the sender's outgoing ItemDownload XML for that item_code, confirm each of these separately and
+report each as its own PASS or FAIL with the observed value quoted:
+  Company=CTC · Item is the size-suffixed option code, not the bare productOptionCode ·
+  ItemClass=CTC-<sub-group-id> · UserDef1 carries the brand · Color · Size · DimensionUm=MM ·
+  WeightUm=KG · one XRef per barcode
+Then confirm the sender logged accepted=N rejected=0 with an empty rejectedTransactions.
+Do NOT summarise this as "fields correct". One line per field, with the value.
+
+STEP 6 - E1 VERDICT
+PASS or FAIL with the evidence named, plus the observed latency and the record counts.
+
+STEP 9 - PARK AND HAND OFF
+a) Return the watermark to idle: ./cin7-watermark.sh --stage staging --profile staging --unset
+   --confirm, confirm Value: UNSET by direct get-parameter, and confirm the poller logs
+   Cin7ItemPollerInactive on its next cycle.
+b) Confirm the buffer queue is 0 visible / 0 in flight, and record the DLQ depth against this
+   session's step 0 baseline. Explain any change.
+c) Append a "=== STATE (end of session 1) ===" block to the log containing: the E1 verdict, watermark
+   value and version, all four alarm states, queue and DLQ depths, every value you changed with its
+   exact undo command, and - stated explicitly by name - the watermark value E1's cycle advanced to,
+   the chosen item_code, and the DLQ baseline depth.
+d) Print to me: the verdict in one line, anything needing my decision, and the literal line
+   "Session 1 complete. Run the Session 2 prompt in a fresh session."
+Then stop. Do not start the next case.

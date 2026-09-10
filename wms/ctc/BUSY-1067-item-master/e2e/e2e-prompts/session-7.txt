@@ -1,0 +1,34 @@
+Read CLAUDE.md and BUSY-1067-E2E-LOG.md in ~/Desktop/testing-tools.
+
+BUSY-1067 EPIC E2E PASS - SESSION 7 of 7: consolidate and close out.
+
+NO AWS CALLS THIS SESSION. Read-only on everything: no Confluence pushes, no Jira changes, no
+watermark or secret touches. You draft, I push.
+
+STEP 1 - RESULTS FILE
+Write ~/Desktop/testing-tools/BUSY-1067-E2E-RESULTS.md from the log: one section per case E1 to E8,
+each with its verdict, the evidence quoted, and its MEASURED / INFERRED / UNKNOWN tag.
+E7's evidence comes from BUSY-1117-AC1-RERUN-RESULTS.md, not from this pass: both alarm transitions,
+both emails received (15:53 and 18:14 AEST), time to alarm 2h31 from the last good cycle accepted as
+within band, recovery in one catch-up cycle of 216 products / 1,429 records.
+Include the DLQ accounting: expected +2 across the pass, actual N, explained.
+
+STEP 2 - CONFLUENCE DRAFT, DO NOT PUSH
+Draft the updates for page 1899429895: the status cell for each of E1 to E8, the sign-off Result
+line, the residual-risk list, and the AC5 answer from E8 if it landed.
+
+STEP 3 - JIRA DRAFTS, DO NOT PUSH
+Draft a comment for BUSY-1067 recording the epic-level QA verdict. BUSY-1067 is still In Progress
+with all five children Done, so say whether QA considers it closable.
+Draft a comment for BUSY-1117 if E8's AC5 answer changes its position. Note that 1117 is closed Done
+with no QA comment on it at all and its five AC checkboxes unticked, so if E8 settled AC5 that is
+worth saying on the ticket.
+
+STEP 4 - WHAT IS STILL OPEN
+List anything still UNKNOWN or unsubstantiated, and anything needing a decision from me. Do not fill
+a gap with an inference.
+Include the standing items I already know about, so they do not get lost: the E2E handover page
+1894973441 still tells downstream readers the alerts topic has zero subscribers and nobody will be
+told, which has been false since 19 Aug; page 1894088713 carries both "80+ minutes" and "94 minutes"
+with nothing distinguishing the two runs, and its AC1 row still reads NOT CLOSED with a descope
+request that the re-run has superseded.

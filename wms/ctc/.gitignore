@@ -1,0 +1,31 @@
+# Credentials. Never commit. The template .env.example is kept.
+.env
+**/.env
+
+# Local IDE settings
+.claude/settings.local.json
+**/settings.local.json
+
+# 174MB of captured Cin7 product catalog, evidence for a finished BUSY-1067
+# investigation. Kept on local disk. The scan's findings are in its result docs,
+# and scan-bare-code-whitespace.sh beside them can reproduce it.
+BUSY-1067-item-master/investigations/bare-code-scan/bare-code-scan-*/
+
+# Byte-identical copy of tools/, pending deletion
+tools/previous-tooling/DUPLICATE-safe-to-delete/
+
+# Superseded drafts, and hand-rolled backups that git now replaces
+_to_delete/
+*.bak
+*.bak-*
+*.pre-*
+
+# Empty husk left by the 2026-09-10 restructure
+test-plans/
+
+.DS_Store
+
+# The repo root ignores .env.* which also catches the templates.
+# Re-include them: they carry variable names only, never values.
+!.env.example
+!**/.env.example

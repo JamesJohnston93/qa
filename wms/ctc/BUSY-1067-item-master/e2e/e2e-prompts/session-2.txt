@@ -1,0 +1,61 @@
+Read CLAUDE.md in ~/Desktop/testing-tools. Stage staging, profile staging, region ap-southeast-2.
+
+BUSY-1067 EPIC E2E PASS - SESSION 2 of 7: E3, duplicate convergence at the inclusive watermark
+boundary. Fresh session, no memory of session 1.
+
+GUARDRAILS
+- Cin7 is PRODUCTION and GET-only. No POST/PUT/PATCH/DELETE, and no hand-rolled curl or aws call to
+  work around that, ever. If a test appears to need a Cin7 write, stop and tell me.
+- Do not touch staging/manhattan/oauth2. Do not modify any alarm, dashboard, Lambda config,
+  EventBridge rule, Confluence page or Jira issue.
+- Run preview-cin7-sync.sh before every watermark --set. Show me the dry run and wait for my OK
+  before you add --confirm.
+- Confirm every SSM write with a direct aws ssm get-parameter read, never a script's success message.
+- Manhattan always returns HTTP 200. Judge delivery on accepted=N rejected=0 and rejectedTransactions.
+- E7 already PASSED on 19 Aug. Do not break the Cin7 secret or force an outage.
+- End to end is 6 to 10 minutes. Do not call anything missing before 10 minutes have passed.
+- Tag every claim MEASURED / INFERRED / UNKNOWN. Anything you cannot substantiate: flag it, do not
+  fill it. Append every step to ~/Desktop/testing-tools/BUSY-1067-E2E-LOG.md with UTC timestamps.
+
+STEP 0 - STATE CHECK (read-only, ~3 min)
+Read the LAST "=== STATE ===" block in ~/Desktop/testing-tools/BUSY-1067-E2E-LOG.md and take from it
+the exact watermark value that E1's cycle advanced to, and the item_code E1 traced. If that block is
+missing or does not name a watermark value, STOP and tell me. Do not guess a value and do not pick
+your own. Then verify live, do not assume:
+a) aws sts get-caller-identity --profile staging
+b) ./cin7-watermark.sh --stage staging --profile staging - literal value and version
+c) ./check-status.sh --stage staging --profile staging - four alarm states, queue depths, and THE DLQ
+   DEPTH, which is this session's baseline. Do not carry a DLQ figure in from session 1.
+d) The last 10 minutes of the poller log group: ACTIVE or Cin7ItemPollerInactive?
+If live state contradicts the STATE block, STOP and tell me before changing anything.
+
+STEP 1 - RE-SET THE WATERMARK TO E1'S ADVANCED VALUE
+Preview first: ./preview-cin7-sync.sh --since <that value>, so we know the blast radius. Then show me
+the watermark dry run, set with --confirm, and confirm by direct get-parameter read.
+Setting the floor back to the value the poller itself advanced to means the boundary second is
+re-read, which is the whole point of the case. There is no overlap window in this pipeline.
+
+STEP 2 - MEASURE CONVERGENCE
+Wait for the cycle, then from the SENDER log record:
+  - ManhattanBatch received=N coalesced=M, and confirm M is strictly less than N
+  - exactly one send per item_code - list the item_codes and their send counts
+  - rejected=0
+Quote the lines. If M equals N, that is a real finding, not a mis-run: say so and do not retry to
+get a nicer number.
+
+STEP 3 - CONFIRM NOTHING WAS LEFT BEHIND
+Buffer queue back to 0 visible / 0 in flight. DLQ depth unchanged from this session's step 0
+baseline. Watermark advanced monotonically and never decreased.
+
+STEP 4 - E3 VERDICT
+PASS or FAIL with the evidence quoted.
+
+STEP 9 - PARK AND HAND OFF
+a) ./cin7-watermark.sh --stage staging --profile staging --unset --confirm, confirm Value: UNSET by
+   direct get-parameter, and confirm Cin7ItemPollerInactive on the next cycle.
+b) Confirm the buffer queue is 0/0 and record the DLQ depth against this session's baseline.
+c) Append a "=== STATE (end of session 2) ===" block: E3 verdict, watermark value and version, four
+   alarm states, queue and DLQ depths, every value changed with its exact undo command.
+d) Print to me: the verdict in one line, anything needing my decision, and the literal line
+   "Session 2 complete. Run the Session 3 prompt in a fresh session."
+Then stop.

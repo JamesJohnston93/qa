@@ -1,0 +1,59 @@
+Read CLAUDE.md in ~/Desktop/testing-tools. Stage staging, profile staging, region ap-southeast-2.
+
+BUSY-1067 EPIC E2E PASS - SESSION 5 of 7: E6, bounded re-sync executed straight from the runbook.
+Fresh session, no memory of the others.
+
+The point of this case is not that the data arrives. It is that the RUNBOOK works as published and
+costs what it says it costs, because the DC team will run it without me present.
+
+GUARDRAILS
+- Cin7 is PRODUCTION and GET-only. No POST/PUT/PATCH/DELETE, ever.
+- Do not touch staging/manhattan/oauth2. Do not modify any alarm, dashboard, Lambda config,
+  EventBridge rule, Confluence page or Jira issue.
+- Run preview-cin7-sync.sh before every watermark --set. Show me the dry run and wait for my OK
+  before you add --confirm.
+- Confirm every SSM write with a direct aws ssm get-parameter read, never a script's success message.
+- Manhattan always returns HTTP 200. Judge delivery on accepted=N rejected=0 and rejectedTransactions.
+- E7 already PASSED on 19 Aug. Do not break the Cin7 secret or force an outage.
+- End to end is 6 to 10 minutes. Do not call anything missing before 10 minutes have passed.
+- Tag every claim MEASURED / INFERRED / UNKNOWN. Anything you cannot substantiate: flag it, do not
+  fill it. Append every step to ~/Desktop/testing-tools/BUSY-1067-E2E-LOG.md with UTC timestamps.
+
+STEP 0 - STATE CHECK (read-only, ~3 min)
+Read the LAST "=== STATE ===" block in the log. Then verify live:
+a) aws sts get-caller-identity --profile staging
+b) ./cin7-watermark.sh --stage staging --profile staging - literal value and version
+c) ./check-status.sh --stage staging --profile staging - four alarm states, queue depths, and THE DLQ
+   DEPTH, which is this session's baseline. Do not carry a figure in from an earlier session.
+d) The poller log group: ACTIVE or Cin7ItemPollerInactive?
+If live state contradicts the STATE block, STOP and tell me before changing anything.
+
+STEP 1 - READ THE RUNBOOK AND FOLLOW IT, NOT YOUR OWN METHOD
+Read the published re-sync runbook (Confluence page 1845100600; the local copy is
+CTC-RESYNC-RUNBOOK.md). Execute a 6 hour rewind BY ITS STEPS, in its order, using its commands.
+Where the runbook and your own instinct disagree, follow the runbook and RECORD THE DISAGREEMENT.
+Every step that does not match what actually happened is a finding worth more than the test result.
+
+STEP 2 - COST IT IN REQUESTS, NOT RECORDS
+Count Cin7ProductsFetched, Cin7ProductOptionsFetched and Cin7TriggeredProductsFetched and derive the
+ACTUAL requests spent. Expect roughly 15, not thousands: cost tracks pages and id-chunks, not record
+volume. If it comes out in the hundreds, stop and tell me before continuing.
+
+STEP 3 - ASSERT THE WINDOW
+Converges in ONE cycle in about a minute. No Cin7ItemPollerPageCapHit. Watermark monotonic and never
+decreasing. rejected=0. DLQ depth unchanged from this session's step 0 baseline.
+
+STEP 4 - E6 VERDICT
+PASS or FAIL with the evidence named, plus a separate list titled "Runbook amendments needed", one
+line per mismatch, or "none" if it ran clean as written.
+
+STEP 9 - PARK AND HAND OFF
+a) ./cin7-watermark.sh --stage staging --profile staging --unset --confirm, confirm Value: UNSET by
+   direct get-parameter, and confirm Cin7ItemPollerInactive on the next cycle.
+b) Confirm the buffer queue is 0/0 and record the DLQ depth against this session's baseline.
+c) Append a "=== STATE (end of session 5) ===" block: the E6 verdict, the runbook amendment list,
+   watermark value and version, four alarm states, queue and DLQ depths, every value changed with
+   its exact undo command.
+d) Print to me: the verdict in one line, the runbook amendments, anything needing my decision, and
+   the literal line "Session 5 complete. Run the Session 6 prompt in a fresh session."
+Then stop.

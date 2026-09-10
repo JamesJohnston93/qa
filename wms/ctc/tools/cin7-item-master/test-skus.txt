@@ -1,0 +1,127 @@
+# Allowlist for trigger-test-change.sh / trigger-netsuite-update.sh — only SKUs listed here (one
+# per line, full "VAR#<id>" form exactly as it appears in DynamoDB) can be mutated by either
+# script. This exists so QA can't accidentally point the tool at a real/unknown variant in the
+# shared staging environment.
+#
+# This one file is shared across BOTH stores (--store us / --store ps) — it is not split
+# per-store. When adding a SKU, note which store it actually lives in (a comment above the entry
+# is fine) and always pass the matching --store when using it, since the same numeric id could in
+# principle exist as an unrelated row in the other store's table.
+#
+# Lines starting with # are ignored.
+#
+# The list below is the BUSY-1044 WMS test set (originally sourced from wms_testing_products.txt)
+# — confirmed to exist on staging (store: us) with real attributes (weight/size/colour/ean etc.)
+# as of 2026-07-09. Safe to reuse across Task 1/2/4/5 testing. Use --store us (the default) with
+# every one of these until PS entries are added below.
+#
+# All entries are variant-level (VAR#<id>). For Task 2 (BUSY-1046) product-level attributes
+# (product_group_id / sub_group_id / is_giftcard), don't add PRD#<id> lines here — instead run
+# find-parent-product.sh --sku VAR#<one-of-these> --store <same store> to derive a safe parent
+# product on demand, then pass it to trigger-test-change.sh via --sku PRD#<id> --via-variant
+# VAR#<id> --store <same store>. This avoids keeping a second, easily-stale list of product IDs
+# in sync with this one.
+
+VAR#34147283
+VAR#34147306
+VAR#34147320
+VAR#34147344
+VAR#34147351
+VAR#34147467
+VAR#34147504
+VAR#34147603
+VAR#34147702
+VAR#34147979
+VAR#34148204
+VAR#34148259
+VAR#34148471
+VAR#34148518
+VAR#34148594
+VAR#34148648
+VAR#34148778
+VAR#34148945
+VAR#34149003
+VAR#34149126
+VAR#34149256
+VAR#34149430
+VAR#34149669
+VAR#34149683
+VAR#34149881
+VAR#34149935
+VAR#34150276
+VAR#34150481
+VAR#34150542
+VAR#34150597
+VAR#34150641
+VAR#34150764
+VAR#34150795
+VAR#34150818
+VAR#34150917
+VAR#34150955
+VAR#34151105
+VAR#34151167
+VAR#34151174
+VAR#34151228
+VAR#34151334
+VAR#34151471
+VAR#34151525
+VAR#34151792
+VAR#34151853
+VAR#34151884
+VAR#34152003
+VAR#34152096
+VAR#34152102
+VAR#34152133
+VAR#34152263
+VAR#34152355
+VAR#34152744
+VAR#34152881
+VAR#34152928
+VAR#34152980
+VAR#34153000
+VAR#34153178
+VAR#34153185
+VAR#34153710
+VAR#34153758
+VAR#34153765
+VAR#34153840
+VAR#34153918
+VAR#34154137
+VAR#34154199
+VAR#34154274
+VAR#34154502
+VAR#34154540
+VAR#34154717
+VAR#34154748
+VAR#34154762
+VAR#34154816
+VAR#34155011
+VAR#34155226
+VAR#34155325
+VAR#34155387
+VAR#34155509
+VAR#34155561
+VAR#34155578
+VAR#34155608
+VAR#34155707
+VAR#34155806
+VAR#34155899
+VAR#34155981
+VAR#34156056
+VAR#34156162
+VAR#34156773
+VAR#34156803
+VAR#34156810
+VAR#34156834
+VAR#34156858
+VAR#34156872
+VAR#34156940
+VAR#34156957
+VAR#34156964
+VAR#34157107
+VAR#34157138
+VAR#34157169
+VAR#34157244
+
+# PS store SKUs — use --store ps with these.
+VAR#34148488
